@@ -99,15 +99,17 @@ create_efi_partition() {
     # Unmount the disposable partition if mounted (best-effort)
     diskutil unmount "${SSD_DISK}s${SSD_DISPOSABLE_PART_IDX}" 2>/dev/null || true
 
-    # Remove the GPT partition entry
+    # Remove the GPT partition entry.
+    # Must use the raw character device (/dev/rdiskN) — the block device is
+    # locked by the kernel because disk0s2 (the boot APFS volume) is mounted.
     log "Removing GPT entry for ${SSD_DISK}s${SSD_DISPOSABLE_PART_IDX}..."
-    gpt remove -i "$SSD_DISPOSABLE_PART_IDX" "$SSD_DISK" 2>&1 | tee -a "$LOG" \
-        || die "gpt remove failed. If 'Resource busy', run manually: sudo gpt remove -i ${SSD_DISPOSABLE_PART_IDX} /dev/rdisk0"
+    gpt remove -i "$SSD_DISPOSABLE_PART_IDX" "/dev/r${SSD_DISK}" 2>&1 | tee -a "$LOG" \
+        || die "gpt remove failed on /dev/r${SSD_DISK}"
 
     # Add 500 MB EFI System Partition at the same starting sector
     log "Adding ${EFI_SIZE_MB} MB EFI System Partition..."
-    gpt add -b "$part_start" -s "$efi_sectors" -t "$EFI_GUID" "$SSD_DISK" 2>&1 | tee -a "$LOG" \
-        || die "gpt add failed"
+    gpt add -b "$part_start" -s "$efi_sectors" -t "$EFI_GUID" "/dev/r${SSD_DISK}" 2>&1 | tee -a "$LOG" \
+        || die "gpt add failed on /dev/r${SSD_DISK}"
 
     # Give diskutil time to notice the new partition
     sleep 2
