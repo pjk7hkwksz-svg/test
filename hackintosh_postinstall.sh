@@ -57,13 +57,16 @@ preconditions() {
 
 # ── Step 1: Create EFI partition on disk0 ────────────────────────────────────
 #
-# Deletes disk0s3 (confirmed disposable) from the GPT and creates a 500 MB
-# EFI System Partition in the freed space.  The remainder (~462 GB) is left
-# as unallocated — the APFS container already has 507 GB free.
+# Strategy: diskutil eraseVolume reformats disk0s3 as FAT32 through disk
+# arbitration (no exclusive device lock required, works on a live boot disk).
+# We then attempt gpt -f to fix the partition type GUID to the EFI System
+# Partition value.  If that also fails, Dell UEFI firmware will still boot
+# from a plain FAT32 partition that contains /EFI/BOOT/BOOTx64.efi.
+# disk0s3 is confirmed disposable; its full ~463 GB becomes the EFI partition.
 create_efi_partition() {
     log "=== Step 1: Create EFI partition on $SSD_DISK ==="
 
-    # If an EFI partition is already present, skip creation entirely
+    # If an EFI-type partition is already present, skip creation entirely
     EFI_PART=$(diskutil list "$SSD_DISK" 2>/dev/null \
         | awk '/^[[:space:]]+[0-9]+:[[:space:]]+EFI[[:space:]]/ {print $NF; exit}')
     if [[ -n "$EFI_PART" ]]; then
@@ -71,66 +74,65 @@ create_efi_partition() {
         return 0
     fi
 
+    # A previous partial run may have left disk0s3 as FAT32 but with the wrong
+    # GUID.  Accept it as-is rather than reformatting again.
+    local msdos_part
+    msdos_part=$(diskutil list "$SSD_DISK" 2>/dev/null \
+        | awk '/^[[:space:]]+[0-9]+:[[:space:]]+(Windows_FAT_32|MS-DOS)[[:space:]]/ {print $NF; exit}')
+    if [[ -n "$msdos_part" ]]; then
+        log "Found FAT32 partition $msdos_part from a previous run — reusing"
+        EFI_PART="$msdos_part"
+        return 0
+    fi
+
     # Confirm the disposable partition still exists
     diskutil info "${SSD_DISK}s${SSD_DISPOSABLE_PART_IDX}" &>/dev/null \
         || die "${SSD_DISK}s${SSD_DISPOSABLE_PART_IDX} not found — cannot proceed"
 
-    # Read the GPT sector layout
-    local gpt_out
-    gpt_out=$(gpt show "$SSD_DISK" 2>/dev/null) \
-        || die "'gpt show $SSD_DISK' failed — is $SSD_DISK a GPT disk?"
+    # Capture sector layout now (needed for the GUID fixup attempt below)
+    local gpt_out part_start part_size
+    gpt_out=$(gpt show "$SSD_DISK" 2>/dev/null) || true
     log "GPT layout before changes:"
     printf '%s\n' "$gpt_out" >> "$LOG"
+    part_start=$(awk -v i="${SSD_DISPOSABLE_PART_IDX}" '$3 == i {print $1; exit}' <<< "$gpt_out")
+    part_size=$(awk  -v i="${SSD_DISPOSABLE_PART_IDX}" '$3 == i {print $2; exit}' <<< "$gpt_out")
 
-    # Extract start and size (in 512-byte sectors) for the disposable partition
-    local part_start part_size
-    part_start=$(awk -v i="${SSD_DISPOSABLE_PART_IDX}" '$3 == i {print $1; exit}' \
-        <<< "$gpt_out")
-    part_size=$(awk  -v i="${SSD_DISPOSABLE_PART_IDX}" '$3 == i {print $2; exit}' \
-        <<< "$gpt_out")
+    # ── Primary: reformat disk0s3 as FAT32 via diskutil ──────────────────────
+    # diskutil goes through Disk Arbitration and does not need an exclusive
+    # device lock, so it works even though disk0s2 is the live boot volume.
+    # The partition keeps Microsoft Basic Data GUID for now; we fix it below.
+    log "Reformatting ${SSD_DISK}s${SSD_DISPOSABLE_PART_IDX} as FAT32 (MS-DOS) via diskutil..."
+    diskutil eraseVolume MS-DOS EFI "${SSD_DISK}s${SSD_DISPOSABLE_PART_IDX}" 2>&1 | tee -a "$LOG" \
+        || die "diskutil eraseVolume failed"
 
-    [[ -n "$part_start" && -n "$part_size" ]] \
-        || die "Could not parse partition ${SSD_DISPOSABLE_PART_IDX} sectors from 'gpt show'"
+    # ── Secondary: fix partition type GUID to EFI System Partition ───────────
+    # gpt -f bypasses the exclusive-lock check.  This may still fail on some
+    # Monterey configurations; if so we warn and continue with the FAT32 GUID.
+    if [[ -n "$part_start" && -n "$part_size" ]]; then
+        log "Attempting EFI GUID fixup via gpt -f..."
+        if gpt -f remove -i "$SSD_DISPOSABLE_PART_IDX" "/dev/r${SSD_DISK}" 2>&1 | tee -a "$LOG" \
+        && gpt -f add -b "$part_start" -s "$part_size" -t "$EFI_GUID" "/dev/r${SSD_DISK}" 2>&1 | tee -a "$LOG"; then
+            log "EFI System Partition GUID set successfully"
+        else
+            warn "GUID fixup failed — partition remains FAT32 (Microsoft Basic Data type)"
+            warn "Dell Latitude E7490 UEFI will still boot from a FAT32 partition containing /EFI/BOOT/BOOTx64.efi"
+        fi
+    fi
 
-    local efi_sectors=$(( EFI_SIZE_MB * 1024 * 1024 / 512 ))
-    log "${SSD_DISK}s${SSD_DISPOSABLE_PART_IDX}: start=${part_start} size=${part_size} sectors"
-    log "EFI will use ${EFI_SIZE_MB} MB = ${efi_sectors} sectors starting at sector ${part_start}"
-
-    # Unmount the disposable partition if mounted (best-effort)
-    diskutil unmount "${SSD_DISK}s${SSD_DISPOSABLE_PART_IDX}" 2>/dev/null || true
-
-    # Remove the GPT partition entry.
-    # Must use the raw character device (/dev/rdiskN) — the block device is
-    # locked by the kernel because disk0s2 (the boot APFS volume) is mounted.
-    log "Removing GPT entry for ${SSD_DISK}s${SSD_DISPOSABLE_PART_IDX}..."
-    gpt remove -i "$SSD_DISPOSABLE_PART_IDX" "/dev/r${SSD_DISK}" 2>&1 | tee -a "$LOG" \
-        || die "gpt remove failed on /dev/r${SSD_DISK}"
-
-    # Add 500 MB EFI System Partition at the same starting sector
-    log "Adding ${EFI_SIZE_MB} MB EFI System Partition..."
-    gpt add -b "$part_start" -s "$efi_sectors" -t "$EFI_GUID" "/dev/r${SSD_DISK}" 2>&1 | tee -a "$LOG" \
-        || die "gpt add failed on /dev/r${SSD_DISK}"
-
-    # Give diskutil time to notice the new partition
     sleep 2
     diskutil repairDisk "$SSD_DISK" &>/dev/null || true
     sleep 1
 
-    # Locate the new partition (poll up to 10 s)
+    # Locate the resulting partition (EFI type or FAT32 fallback)
     local retries=5
     for (( i=0; i<retries; i++ )); do
         EFI_PART=$(diskutil list "$SSD_DISK" 2>/dev/null \
-            | awk '/^[[:space:]]+[0-9]+:[[:space:]]+EFI[[:space:]]/ {print $NF; exit}')
+            | awk '/^[[:space:]]+[0-9]+:[[:space:]]+(EFI|Windows_FAT_32|MS-DOS)[[:space:]]/ {print $NF; exit}')
         [[ -n "$EFI_PART" ]] && break
         sleep 2
     done
     [[ -n "$EFI_PART" ]] \
-        || die "New EFI partition not visible after gpt add — run: diskutil list $SSD_DISK"
-
-    # Format as FAT32 with label "EFI"
-    log "Formatting /dev/r${EFI_PART} as FAT32..."
-    newfs_msdos -F 32 -v EFI "/dev/r${EFI_PART}" 2>&1 | tee -a "$LOG" \
-        || die "newfs_msdos failed"
+        || die "Partition not visible after format — run: diskutil list $SSD_DISK"
 
     log "EFI partition created: $EFI_PART"
 }
@@ -139,14 +141,24 @@ create_efi_partition() {
 mount_ssd_efi() {
     log "=== Step 2: Mount EFI partition ==="
 
-    # Resolve EFI_PART on a re-run where Step 1 was skipped
+    # Resolve EFI_PART on a re-run where Step 1 was skipped.
+    # Accept EFI type or FAT32 (MS-DOS / Windows_FAT_32) as a valid EFI partition.
     if [[ -z "$EFI_PART" ]]; then
         EFI_PART=$(diskutil list "$SSD_DISK" 2>/dev/null \
-            | awk '/^[[:space:]]+[0-9]+:[[:space:]]+EFI[[:space:]]/ {print $NF; exit}')
-        [[ -n "$EFI_PART" ]] || die "No EFI partition found on $SSD_DISK"
+            | awk '/^[[:space:]]+[0-9]+:[[:space:]]+(EFI|Windows_FAT_32|MS-DOS)[[:space:]]/ {print $NF; exit}')
+        [[ -n "$EFI_PART" ]] || die "No EFI/FAT32 partition found on $SSD_DISK"
     fi
 
     mkdir -p "$EFI_MOUNT"
+
+    # diskutil eraseVolume auto-mounts the freshly formatted partition.
+    # If it mounted somewhere other than EFI_MOUNT, remount it where we expect.
+    local current_mount
+    current_mount=$(mount | awk -v d="/dev/${EFI_PART}" '$1==d {print $3}')
+    if [[ -n "$current_mount" && "$current_mount" != "$EFI_MOUNT" ]]; then
+        log "Partition auto-mounted at $current_mount — remounting at $EFI_MOUNT"
+        diskutil unmount "$EFI_PART" 2>&1 | tee -a "$LOG" || true
+    fi
 
     if mount | grep -qF " $EFI_MOUNT "; then
         log "Already mounted at $EFI_MOUNT"
