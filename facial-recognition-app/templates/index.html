@@ -1,0 +1,60 @@
+{% extends "base.html" %}
+{% block title %}Dashboard — FaceID{% endblock %}
+
+{% block content %}
+<section class="hero">
+  <h1>Facial Recognition Dashboard</h1>
+  <p class="subtitle">Register faces, then identify them instantly from photos or your webcam.</p>
+  <div class="hero-actions">
+    <a class="btn btn-primary" href="/register">+ Register a Face</a>
+    <a class="btn btn-secondary" href="/recognize">Recognize Faces</a>
+  </div>
+</section>
+
+<section class="stats-row">
+  <div class="stat-card">
+    <span class="stat-number">{{ face_count }}</span>
+    <span class="stat-label">Enrolled Faces</span>
+  </div>
+</section>
+
+<section class="card">
+  <h2>Enrolled People</h2>
+  {% if faces %}
+  <table class="face-table">
+    <thead>
+      <tr>
+        <th>#</th>
+        <th>Thumbnail</th>
+        <th>Name</th>
+        <th>Enrolled At</th>
+        <th>Action</th>
+      </tr>
+    </thead>
+    <tbody>
+      {% for face in faces %}
+      <tr id="row-{{ face.id }}">
+        <td>{{ face.id }}</td>
+        <td>
+          <img class="thumb"
+               src="/api/faces/{{ face.id }}/thumbnail"
+               alt="{{ face.name }}"
+               onerror="this.src='/static/img/placeholder.png'" />
+        </td>
+        <td>{{ face.name }}</td>
+        <td>{{ face.created_at }}</td>
+        <td>
+          <button class="btn btn-danger btn-sm"
+                  onclick="deleteFace({{ face.id }}, '{{ face.name }}')">Delete</button>
+        </td>
+      </tr>
+      {% endfor %}
+    </tbody>
+  </table>
+  {% else %}
+  <p class="empty-state">No faces enrolled yet. <a href="/register">Register the first one!</a></p>
+  {% endif %}
+</section>
+
+<div id="toast" class="toast hidden"></div>
+{% endblock %}

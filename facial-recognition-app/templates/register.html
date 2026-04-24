@@ -1,0 +1,55 @@
+{% extends "base.html" %}
+{% block title %}Register Face — FaceID{% endblock %}
+
+{% block content %}
+<section class="card form-card">
+  <h2>Register a New Face</h2>
+  <p class="subtitle">Upload a clear photo with a single face, or use your webcam.</p>
+
+  <form id="registerForm" enctype="multipart/form-data">
+    <div class="form-group">
+      <label for="nameInput">Full Name *</label>
+      <input id="nameInput" type="text" name="name" placeholder="e.g. Jane Doe" required />
+    </div>
+
+    <!-- Tab toggle -->
+    <div class="tab-bar">
+      <button type="button" class="tab active" data-tab="upload">Upload Photo</button>
+      <button type="button" class="tab" data-tab="webcam">Use Webcam</button>
+    </div>
+
+    <!-- Upload tab -->
+    <div id="tab-upload" class="tab-content active">
+      <div class="drop-zone" id="dropZone">
+        <p>Drag & drop an image here, or</p>
+        <label class="btn btn-secondary" for="fileInput">Browse File</label>
+        <input id="fileInput" type="file" name="image" accept="image/*" hidden />
+      </div>
+      <img id="uploadPreview" class="preview hidden" alt="Preview" />
+    </div>
+
+    <!-- Webcam tab -->
+    <div id="tab-webcam" class="tab-content hidden">
+      <div class="webcam-wrap">
+        <video id="video" autoplay playsinline></video>
+        <canvas id="canvas" hidden></canvas>
+      </div>
+      <div class="webcam-controls">
+        <button type="button" id="startCam" class="btn btn-secondary">Start Camera</button>
+        <button type="button" id="captureBtn" class="btn btn-primary" disabled>Capture</button>
+      </div>
+      <img id="capturePreview" class="preview hidden" alt="Captured" />
+      <input type="hidden" id="image_data" name="image_data" />
+    </div>
+
+    <div id="registerMsg" class="msg hidden"></div>
+    <button type="submit" class="btn btn-primary btn-full">Register Face</button>
+  </form>
+</section>
+
+<div id="toast" class="toast hidden"></div>
+{% endblock %}
+
+{% block scripts %}
+<script src="{{ url_for('static', filename='js/register.js') }}"></script>
+{% endblock %}
