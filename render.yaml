@@ -4,7 +4,7 @@ services:
     runtime: docker
     branch: claude/goal-setting-8y0rp
     plan: free
-    healthCheckPath: /api/options
+    healthCheckPath: /health
     envVars:
       - key: PORT
         value: 8000

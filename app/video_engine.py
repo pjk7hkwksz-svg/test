@@ -74,8 +74,11 @@ def _font(size: int) -> ImageFont.FreeTypeFont:
     if size in _FONT_CACHE:
         return _FONT_CACHE[size]
     for p in [
-        "/usr/share/fonts/truetype/dejavu/DejaVuSans-Bold.ttf",
         "/usr/share/fonts/truetype/liberation/LiberationSans-Bold.ttf",
+        "/usr/share/fonts/truetype/dejavu/DejaVuSans-Bold.ttf",
+        "/usr/share/fonts/truetype/noto/NotoSans-Bold.ttf",
+        "/usr/share/fonts/truetype/noto-core/NotoSans-Bold.ttf",
+        "/usr/share/fonts/noto/NotoSans-Bold.ttf",
         "/usr/share/fonts/truetype/freefont/FreeSansBold.ttf",
     ]:
         if Path(p).exists():
@@ -365,26 +368,46 @@ def _draw_chrome(img, title, title_font, title_w, frame, total, accent, n_lines,
     line_a = int(title_alpha * 0.65)
     draw.rectangle([WIDTH / 2 - 160, 234, WIDTH / 2 + 160, 238], fill=(*accent, line_a))
 
-    # line counter
+    # Line progress indicator: dots (≤12 lines) or text counter (>12)
     if cur_line >= 0:
-        label = f"{min(cur_line + 1, n_lines)} / {n_lines}"
-        lw    = draw.textlength(label, font=F_SMALL)
-        draw.text(((WIDTH - lw) / 2, HEIGHT - 150), label,
-                  font=F_SMALL, fill=(255, 255, 255, 100))
+        if n_lines <= 12:
+            dot_d   = 12
+            dot_gap = 22
+            dot_y   = HEIGHT - 148
+            total_dots_w = n_lines * dot_gap - (dot_gap - dot_d)
+            dx = (WIDTH - total_dots_w) / 2 + dot_d / 2
+            for di in range(n_lines):
+                if di == cur_line:
+                    r_dot = dot_d / 2 + 2
+                    draw.ellipse([dx - r_dot, dot_y - r_dot, dx + r_dot, dot_y + r_dot],
+                                 fill=(*accent, 220))
+                else:
+                    r_dot = dot_d / 2
+                    a_dot = 80 if di < cur_line else 42
+                    draw.ellipse([dx - r_dot, dot_y - r_dot, dx + r_dot, dot_y + r_dot],
+                                 fill=(255, 255, 255, a_dot))
+                dx += dot_gap
+        else:
+            label = f"{min(cur_line + 1, n_lines)} / {n_lines}"
+            lw    = draw.textlength(label, font=F_SMALL)
+            draw.text(((WIDTH - lw) / 2, HEIGHT - 150), label,
+                      font=F_SMALL, fill=(255, 255, 255, 100))
 
-    # progress bar — two-layer for depth
+    # progress bar — glow layer + solid fill + pip
     prog  = frame / max(total - 1, 1)
-    bx0, bx1, by = PAD, WIDTH - PAD, HEIGHT - 96
+    bx0, bx1, by = PAD, WIDTH - PAD, HEIGHT - 86
     bar_w = bx1 - bx0
-    draw.rounded_rectangle([bx0, by, bx1, by + 10], radius=5, fill=(255, 255, 255, 22))
+    draw.rounded_rectangle([bx0, by, bx1, by + 8], radius=4, fill=(255, 255, 255, 20))
     filled = int(bar_w * prog)
     if filled > 2:
-        draw.rounded_rectangle([bx0, by, bx0 + filled, by + 10], radius=5,
-                               fill=(*accent, 230))
-        # bright pip at leading edge
+        # Soft glow halo underneath the bar
+        draw.rounded_rectangle([bx0, by - 2, bx0 + filled, by + 11], radius=6,
+                               fill=(*accent, 55))
+        draw.rounded_rectangle([bx0, by, bx0 + filled, by + 8], radius=4,
+                               fill=(*accent, 235))
         draw.rounded_rectangle([bx0 + filled - 4, by - 1,
-                                 bx0 + filled + 4, by + 12], radius=3,
-                               fill=(255, 255, 255, 200))
+                                 bx0 + filled + 4, by + 10], radius=3,
+                               fill=(255, 255, 255, 210))
 
 
 # ── frame composition ──────────────────────────────────────────────────────────

@@ -278,8 +278,12 @@ def video(job_id: str):
 @app.get("/api/download/{job_id}")
 def download(job_id: str):
     path = _video_file(job_id)
-    return FileResponse(path, media_type="video/mp4",
-                        filename=f"video_{job_id}.mp4")
+    with _LOCK:
+        job = JOBS.get(job_id, {})
+    title = job.get("title", "")
+    slug = re.sub(r"[^a-zA-Z0-9]+", "_", title)[:40].strip("_").lower()
+    filename = f"{slug}.mp4" if slug else f"video_{job_id}.mp4"
+    return FileResponse(path, media_type="video/mp4", filename=filename)
 
 
 # static PWA (mounted last so /api/* wins)

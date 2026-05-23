@@ -2,9 +2,10 @@
 # One-time setup for ShortMagic — installs deps and downloads neural voices.
 set -e
 
-echo "==> Installing system packages (ffmpeg, espeak-ng)…"
+echo "==> Installing system packages (ffmpeg, espeak-ng, fonts)…"
 if command -v apt-get >/dev/null; then
-  sudo apt-get update -qq && sudo apt-get install -y -qq ffmpeg espeak-ng
+  sudo apt-get update -qq && sudo apt-get install -y -qq \
+    ffmpeg espeak-ng fonts-liberation fonts-noto-core
 elif command -v brew >/dev/null; then
   brew install ffmpeg espeak
 else
