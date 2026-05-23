@@ -14,6 +14,7 @@ produces a usable script offline.
 
 from __future__ import annotations
 
+import hashlib
 import json
 import os
 import random
@@ -24,12 +25,7 @@ import urllib.request
 # ── caption splitting ───────────────────────────────────────────────────────
 
 def split_into_lines(text: str, max_chars: int = 64) -> list[str]:
-    """Break free text into short, punchy caption lines.
-
-    Whole sentences are kept together when they fit; long ones are wrapped on
-    word boundaries with orphan tails (1-2 words) merged back so we never show a
-    single stray word on its own caption.
-    """
+    """Break free text into short, punchy caption lines."""
     text = re.sub(r"\s+", " ", text).strip()
     sentences = re.split(r"(?<=[.!?])\s+", text)
     lines: list[str] = []
@@ -68,6 +64,18 @@ _HOOKS = [
     "Stop scrolling — this changes how you see {topic}.",
     "The truth about {topic} is wilder than you'd expect.",
     "I wish someone told me this about {topic} sooner.",
+    "What they never teach you about {topic} in school.",
+    "Three things about {topic} that will blow your mind.",
+    "This one fact about {topic} changes everything.",
+    "Nobody talks about what {topic} really does to you.",
+    "The hidden side of {topic} most people never discover.",
+    "Everything you believe about {topic} is probably wrong.",
+    "Here is the real story behind {topic}.",
+    "If you care about {topic}, you need to watch this.",
+    "Scientists just revealed something shocking about {topic}.",
+    "Your {topic} routine is missing this crucial step.",
+    "The uncomfortable truth about {topic} nobody wants to hear.",
+    "Why {topic} is more powerful than you ever imagined.",
 ]
 
 _BEATS = [
@@ -79,6 +87,22 @@ _BEATS = [
     "There's a hidden pattern, and once you see it you can't unsee it.",
     "The data shows something almost no one expects.",
     "And the simplest version of this is the most powerful.",
+    "Research confirms what high performers figured out years ago.",
+    "The gap between knowing and doing is where most people get stuck.",
+    "It takes only twenty-one days to rewire this completely.",
+    "The top one percent treat this completely differently.",
+    "Your brain actually changes its structure when you do this consistently.",
+    "This single habit compounds faster than almost anything else.",
+    "What looks like talent from the outside is really just consistent practice.",
+    "The science here is clearer than most people realize.",
+    "Even small improvements here stack into life-changing results.",
+    "The reason most people fail at this is entirely fixable.",
+    "Once you understand the mechanism, the whole picture changes.",
+    "This is the part the self-help books always leave out.",
+    "The counterintuitive move here is the one that actually works.",
+    "Consistency beats intensity every single time.",
+    "The people who get this right share one common habit.",
+    "It compounds silently until one day the results become impossible to ignore.",
 ]
 
 _CTAS = [
@@ -87,11 +111,26 @@ _CTAS = [
     "Which part surprised you most?",
     "Share this with someone who needs it.",
     "Follow for more mind-blowing facts.",
+    "Drop a comment if this changed how you think about {topic}.",
+    "Follow to learn what most people never discover.",
+    "Tag someone who needs to hear this today.",
+    "Save this — you will want to rewatch it.",
+    "Follow for daily insights that actually matter.",
+    "Like if you learned something new here.",
+    "Which of these will you try first?",
+    "What would you add? Drop it below.",
+    "Share this before the algorithm buries it.",
+    "Follow for more content that makes you think.",
 ]
 
 
+def _stable_seed(topic: str) -> int:
+    """SHA-256-based seed — stable across Python runs unlike hash()."""
+    return int(hashlib.sha256(topic.encode()).hexdigest()[:16], 16) % (2**31)
+
+
 def _template_script(topic: str, beats: int = 6) -> list[str]:
-    rng = random.Random(hash(topic) & 0xFFFFFFFF)
+    rng = random.Random(_stable_seed(topic))
     t = topic.strip().rstrip(".!?") or "this"
     lines = [rng.choice(_HOOKS).format(topic=t)]
     pool = _BEATS[:]
@@ -119,7 +158,7 @@ def _llm_anthropic(topic: str) -> list[str] | None:
         return None
     base = os.environ.get("ANTHROPIC_BASE_URL", "https://api.anthropic.com").rstrip("/")
     body = json.dumps({
-        "model": os.environ.get("SCRIPT_MODEL", "claude-sonnet-4-6"),
+        "model": os.environ.get("SCRIPT_MODEL", "claude-haiku-4-5-20251001"),
         "max_tokens": 600,
         "system": LLM_SYSTEM,
         "messages": [{"role": "user", "content": f"TOPIC: {topic}"}],
@@ -133,7 +172,7 @@ def _llm_anthropic(topic: str) -> list[str] | None:
         },
     )
     try:
-        with urllib.request.urlopen(req, timeout=40) as r:
+        with urllib.request.urlopen(req, timeout=15) as r:
             data = json.loads(r.read())
         text = "".join(b.get("text", "") for b in data.get("content", []))
         lines = [l.strip(" -•\t") for l in text.splitlines() if l.strip()]
@@ -160,9 +199,14 @@ def _llm_openai(topic: str) -> list[str] | None:
         headers={"authorization": f"Bearer {key}", "content-type": "application/json"},
     )
     try:
-        with urllib.request.urlopen(req, timeout=40) as r:
+        with urllib.request.urlopen(req, timeout=15) as r:
             data = json.loads(r.read())
-        text = data["choices"][0]["message"]["content"]
+        choices = data.get("choices")
+        if not choices:
+            return None
+        text = choices[0].get("message", {}).get("content", "")
+        if not text:
+            return None
         lines = [l.strip(" -•\t") for l in text.splitlines() if l.strip()]
         return [l for l in lines if l] or None
     except Exception:

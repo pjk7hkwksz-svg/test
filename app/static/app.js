@@ -1,5 +1,5 @@
 const $ = (id) => document.getElementById(id);
-const state = { mode: "topic", voice: "ryan", theme: "midnight", speed: 1, job: null, poll: null };
+const state = { mode: "topic", voice: "ryan", theme: "midnight", speed: 1, job: null, pollTimer: null, pollDelay: 1200 };
 
 const THEME_COLORS = {
   midnight: "linear-gradient(150deg,#1e1450,#0a1e4a)",
@@ -7,6 +7,8 @@ const THEME_COLORS = {
   neon:     "linear-gradient(150deg,#5a0846,#1014c0)",
   emerald:  "linear-gradient(150deg,#085a3a,#06403c)",
   mono:     "linear-gradient(150deg,#222228,#0a0a0c)",
+  crimson:  "linear-gradient(150deg,#5a0a18,#8a1428)",
+  ocean:    "linear-gradient(150deg,#041e3a,#063060)",
 };
 
 async function loadOptions() {
@@ -75,7 +77,9 @@ function toast(msg, err) {
   const t = $("toast");
   t.textContent = msg;
   t.className = "toast" + (err ? " err" : "");
-  setTimeout(() => t.classList.add("hidden"), 3200);
+  t.classList.remove("hidden");
+  clearTimeout(t._hide);
+  t._hide = setTimeout(() => t.classList.add("hidden"), err ? 8000 : 5000);
 }
 
 $("genBtn").onclick = async () => {
@@ -84,6 +88,9 @@ $("genBtn").onclick = async () => {
   show("progressView");
   setProgress(2, "Starting…");
   $("scriptPreview").innerHTML = "";
+  $("scriptPreview").dataset.filled = "";
+  $("queueMsg").textContent = "";
+  state.pollDelay = 1200;
   try {
     const r = await fetch("/api/generate", {
       method: "POST", headers: { "Content-Type": "application/json" },
@@ -92,10 +99,13 @@ $("genBtn").onclick = async () => {
         theme: state.theme, speed: state.speed,
       }),
     });
-    if (!r.ok) throw new Error((await r.json()).detail || "failed");
+    if (!r.ok) {
+      const err = await r.json().catch(() => ({}));
+      throw new Error(err.detail || "Request failed");
+    }
     const { job_id } = await r.json();
     state.job = job_id;
-    poll();
+    schedulePoll();
   } catch (e) { show("createView"); toast(e.message || "Failed", true); }
 };
 
@@ -105,46 +115,88 @@ function setProgress(pct, msg) {
   if (msg) $("statusMsg").textContent = msg;
 }
 
-function poll() {
-  clearInterval(state.poll);
-  state.poll = setInterval(async () => {
-    if (!state.job) return;
-    try {
-      const r = await fetch("/api/status/" + state.job);
-      const s = await r.json();
-      setProgress(s.progress || 0, s.message);
-      if (s.lines && !$("scriptPreview").dataset.filled) {
-        $("scriptPreview").dataset.filled = "1";
-        $("scriptPreview").innerHTML =
-          `<div class="ln dim" style="color:#8ab4ff">📝 ${s.title} · ${s.source}</div>` +
-          s.lines.map(l => `<div class="ln">${escapeHtml(l)}</div>`).join("");
-      }
-      if (s.state === "done") { clearInterval(state.poll); showResult(); }
-      else if (s.state === "error") {
-        clearInterval(state.poll); show("createView");
-        toast("Error: " + (s.error || "failed"), true);
-      }
-    } catch (e) { /* keep polling */ }
-  }, 800);
+function schedulePoll() {
+  clearTimeout(state.pollTimer);
+  state.pollTimer = setTimeout(doPoll, state.pollDelay);
 }
 
-function showResult() {
-  $("player").src = "/api/video/" + state.job + "?t=" + Date.now();
+async function doPoll() {
+  if (!state.job) return;
+  try {
+    const r = await fetch("/api/status/" + state.job);
+    if (!r.ok) { schedulePoll(); return; }
+    const s = await r.json();
+    setProgress(s.progress || 0, s.message);
+
+    // Show queue position when waiting
+    if (s.queue_pos > 1) {
+      $("queueMsg").textContent = `Position in queue: ${s.queue_pos}`;
+    } else {
+      $("queueMsg").textContent = "";
+    }
+
+    if (s.lines && !$("scriptPreview").dataset.filled) {
+      $("scriptPreview").dataset.filled = "1";
+      $("scriptPreview").innerHTML =
+        `<div class="ln dim" style="color:#8ab4ff">📝 ${escapeHtml(s.title || "")} · ${s.source || ""}</div>` +
+        (s.lines || []).map(l => `<div class="ln">${escapeHtml(l)}</div>`).join("");
+    }
+
+    if (s.state === "done") {
+      showResult(s);
+      return;
+    } else if (s.state === "error") {
+      show("createView");
+      toast("Error: " + (s.error || "generation failed"), true);
+      return;
+    }
+
+    // Exponential backoff: 1.2s → 1.8s → 2.7s … cap at 4s
+    state.pollDelay = Math.min(state.pollDelay * 1.5, 4000);
+    schedulePoll();
+  } catch (e) {
+    schedulePoll();
+  }
+}
+
+function showResult(s) {
+  const player = $("player");
+  player.onerror = () => {
+    toast("Video failed to load — try downloading instead", true);
+    $("resultMeta").textContent = "Playback error";
+  };
+  player.src = "/api/video/" + state.job + "?t=" + Date.now();
   $("downloadBtn").href = "/api/download/" + state.job;
-  fetch("/api/status/" + state.job).then(r => r.json())
-    .then(s => { $("resultTitle").textContent = s.title || ""; });
+
+  const meta = [];
+  if (s && s.title) meta.push(s.title);
+  if (s && s.size_mb) meta.push(s.size_mb + " MB");
+  $("resultTitle").textContent = s && s.title ? s.title : "";
+  if ($("resultMeta")) $("resultMeta").textContent = meta.length > 1 ? meta[1] : "";
+
   show("resultView");
 }
 
-$("cancelBtn").onclick = () => { clearInterval(state.poll); state.job = null; show("createView"); };
+$("cancelBtn").onclick = async () => {
+  clearTimeout(state.pollTimer);
+  if (state.job) {
+    fetch("/api/cancel/" + state.job, { method: "DELETE" }).catch(() => {});
+  }
+  state.job = null;
+  show("createView");
+};
+
 $("againBtn").onclick = () => {
   $("scriptPreview").dataset.filled = "";
-  $("player").pause(); $("player").src = "";
+  const player = $("player");
+  player.pause();
+  player.src = "";
+  player.onerror = null;
   show("createView");
 };
 
 function escapeHtml(s) {
-  return s.replace(/[&<>]/g, c => ({ "&": "&amp;", "<": "&lt;", ">": "&gt;" }[c]));
+  return String(s).replace(/[&<>]/g, c => ({ "&": "&amp;", "<": "&lt;", ">": "&gt;" }[c]));
 }
 
 if ("serviceWorker" in navigator) {

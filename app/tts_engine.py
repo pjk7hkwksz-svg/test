@@ -8,6 +8,7 @@ us distribute words evenly for karaoke-style highlighting.
 
 from __future__ import annotations
 
+import hashlib
 import wave
 from dataclasses import dataclass, field
 from pathlib import Path
@@ -18,10 +19,10 @@ VOICES_DIR = Path(__file__).resolve().parent.parent / "voices"
 
 # Friendly name -> piper model file stem
 VOICE_MODELS = {
-    "ryan":   "en_US-ryan-medium",      # warm male narrator
-    "male":   "en_US-hfc_male-medium",  # clear neutral male
-    "female": "en_US-hfc_female-medium",# clear neutral female
-    "lessac": "en_US-lessac-medium",    # smooth neutral
+    "ryan":   "en_US-ryan-medium",       # warm male narrator
+    "male":   "en_US-hfc_male-medium",   # clear neutral male
+    "female": "en_US-hfc_female-medium", # clear neutral female
+    "lessac": "en_US-lessac-medium",     # smooth neutral
 }
 
 DEFAULT_VOICE = "ryan"
@@ -82,47 +83,57 @@ def render_lines(
     lines: list[str],
     voice: str = DEFAULT_VOICE,
     speed: float = 1.0,
-    gap: float = 0.28,
+    gap: float = 0.25,
+    content_seed: int = 0,
 ) -> tuple[list[Line], np.ndarray]:
     """
-    Synthesize every line, insert a short silent gap between lines, and return
+    Synthesize every line, insert a varied silent gap between lines, and return
     (timed_lines, full_audio_float32).
 
     `speed` > 1 is faster speech (piper length_scale = 1/speed).
+    Gaps vary slightly per line for a more natural cadence.
     """
     v = _load_voice(voice)
     length_scale = 1.0 / max(0.5, min(2.0, speed))
 
-    gap_samples = int(gap * SAMPLE_RATE)
-    silence = np.zeros(gap_samples, dtype=np.float32)
+    # Seeded RNG for reproducible but varied gaps
+    rng = np.random.default_rng(content_seed % (2**31))
 
     timed: list[Line] = []
     buffers: list[np.ndarray] = []
     cursor = 0.0
-    # small lead-in so the first word doesn't clip the video start
-    lead = np.zeros(int(0.4 * SAMPLE_RATE), dtype=np.float32)
-    buffers.append(lead)
-    cursor += len(lead) / SAMPLE_RATE
+
+    # Short lead-in — just enough to prevent a hard clip at t=0
+    lead_samples = int(0.15 * SAMPLE_RATE)
+    buffers.append(np.zeros(lead_samples, dtype=np.float32))
+    cursor += lead_samples / SAMPLE_RATE
 
     for i, text in enumerate(lines):
         audio = _synthesize(v, text, length_scale)
-        # gentle normalize per line
-        peak = float(np.max(np.abs(audio))) if audio.size else 0.0
-        if peak > 0:
-            audio = audio * (0.92 / peak)
         dur = len(audio) / SAMPLE_RATE
         line = Line(text=text, audio=audio, duration=dur, start=cursor)
         timed.append(line)
         buffers.append(audio)
         cursor += dur
         if i < len(lines) - 1:
-            buffers.append(silence)
-            cursor += gap
-    # tail
-    tail = np.zeros(int(0.8 * SAMPLE_RATE), dtype=np.float32)
-    buffers.append(tail)
+            # Vary gap 0.18–0.38s; longer after sentences that end with a period
+            base = 0.28 if text.rstrip().endswith((".","!","?")) else 0.20
+            gap_s = float(rng.uniform(base - 0.05, base + 0.08))
+            gap_samples = int(gap_s * SAMPLE_RATE)
+            buffers.append(np.zeros(gap_samples, dtype=np.float32))
+            cursor += gap_s
+
+    # Short tail
+    tail_samples = int(0.35 * SAMPLE_RATE)
+    buffers.append(np.zeros(tail_samples, dtype=np.float32))
 
     full = np.concatenate(buffers) if buffers else np.zeros(1, dtype=np.float32)
+
+    # Single gentle overall normalization — preserves natural dynamics
+    peak = float(np.max(np.abs(full)))
+    if peak > 0.01:
+        full = full * (0.88 / peak)
+
     return timed, full
 
 
