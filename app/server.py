@@ -122,8 +122,17 @@ def _run_job(job_id: str, req: GenerateRequest):
 
         out = JOBS_DIR / f"{job_id}.mp4"
 
+        render_start = time.time()
+
         def progress(pct, msg):
-            _set(job_id, state="rendering", progress=max(5, pct), message=msg)
+            pct = max(5, pct)
+            eta = None
+            elapsed = time.time() - render_start
+            if pct > 10 and elapsed > 2:
+                frac = (pct - 5) / 95.0
+                total_est = elapsed / frac
+                eta = max(0, int(total_est - elapsed))
+            _set(job_id, state="rendering", progress=pct, message=msg, eta=eta)
 
         with _RENDER_LOCK:
             with _LOCK:
@@ -221,6 +230,7 @@ def status(job_id: str):
             "source":    job.get("source"),
             "size_mb":   job.get("size_mb"),
             "queue_pos": queue_pos,
+            "eta":       job.get("eta"),
         }
 
 

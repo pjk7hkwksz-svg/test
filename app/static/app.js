@@ -1,4 +1,5 @@
 const $ = (id) => document.getElementById(id);
+const MAX_CONTENT = 2000;
 const state = { mode: "topic", voice: "ryan", theme: "midnight", speed: 1, job: null, pollTimer: null, pollDelay: 1200 };
 
 const THEME_COLORS = {
@@ -68,6 +69,19 @@ $("speed").oninput = (e) => {
   $("speedVal").textContent = SPEED_WORDS[state.speed] || "normal";
 };
 
+// Character counter
+$("content").addEventListener("input", () => {
+  const len = $("content").value.length;
+  const cc = $("charCount");
+  if (len > 100) {
+    cc.textContent = len + " / " + MAX_CONTENT;
+    cc.classList.toggle("warn", len > MAX_CONTENT * 0.9);
+  } else {
+    cc.textContent = "";
+    cc.classList.remove("warn");
+  }
+});
+
 function show(view) {
   ["createView", "progressView", "resultView"].forEach(v =>
     $(v).classList.toggle("hidden", v !== view));
@@ -85,6 +99,12 @@ function toast(msg, err) {
 $("genBtn").onclick = async () => {
   const content = $("content").value.trim();
   if (!content) { toast("Enter a topic first", true); return; }
+  if (content.length > MAX_CONTENT) {
+    toast(`Topic too long — please shorten to ${MAX_CONTENT} characters`, true); return;
+  }
+  if (navigator.vibrate) navigator.vibrate(10);
+  $("genBtn").disabled = true;
+  $("genBtn").textContent = "Starting…";
   show("progressView");
   setProgress(2, "Starting…");
   $("scriptPreview").innerHTML = "";
@@ -106,12 +126,21 @@ $("genBtn").onclick = async () => {
     const { job_id } = await r.json();
     state.job = job_id;
     schedulePoll();
-  } catch (e) { show("createView"); toast(e.message || "Failed", true); }
+  } catch (e) {
+    show("createView");
+    toast(e.message || "Failed", true);
+  } finally {
+    $("genBtn").disabled = false;
+    $("genBtn").textContent = "Generate video";
+  }
 };
 
 function setProgress(pct, msg) {
-  $("pct").textContent = Math.round(pct) + "%";
-  $("barFill").style.width = pct + "%";
+  const p = Math.round(pct);
+  $("pct").textContent = p + "%";
+  $("barFill").style.width = p + "%";
+  const pb = $("progressBar");
+  if (pb) pb.setAttribute("aria-valuenow", p);
   if (msg) $("statusMsg").textContent = msg;
 }
 
@@ -128,9 +157,11 @@ async function doPoll() {
     const s = await r.json();
     setProgress(s.progress || 0, s.message);
 
-    // Show queue position when waiting
+    // Show queue position or ETA
     if (s.queue_pos > 1) {
-      $("queueMsg").textContent = `Position in queue: ${s.queue_pos}`;
+      $("queueMsg").textContent = `Queue position: ${s.queue_pos}`;
+    } else if (s.eta != null && s.eta > 2) {
+      $("queueMsg").textContent = `About ${s.eta}s remaining`;
     } else {
       $("queueMsg").textContent = "";
     }
@@ -143,6 +174,7 @@ async function doPoll() {
     }
 
     if (s.state === "done") {
+      if (navigator.vibrate) navigator.vibrate([40, 30, 40]);
       showResult(s);
       return;
     } else if (s.state === "error") {
