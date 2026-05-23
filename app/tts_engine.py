@@ -79,6 +79,24 @@ def _synthesize(voice, text: str, length_scale: float) -> np.ndarray:
     return np.concatenate(parts)
 
 
+def _soft_compress(audio: np.ndarray, threshold: float = 0.4, ratio: float = 2.0) -> np.ndarray:
+    """Sliding-window RMS compressor — broadcast-style voice levelling, O(N) via cumsum."""
+    n = len(audio)
+    if n < 2:
+        return audio
+    win = max(1, int(0.04 * SAMPLE_RATE))  # 40ms lookback window
+    sq = audio.astype(np.float64) ** 2
+    csq = np.zeros(n + 1, dtype=np.float64)
+    np.cumsum(sq, out=csq[1:])
+    hi = np.arange(1, n + 1)
+    lo = np.maximum(hi - win, 0)
+    rms = np.sqrt(np.maximum((csq[hi] - csq[lo]) / (hi - lo), 1e-10)).astype(np.float32)
+    gain = np.where(rms > threshold,
+                    (threshold / rms) * (rms / threshold) ** (1.0 / ratio),
+                    np.float32(1.0))
+    return (audio * gain).astype(np.float32)
+
+
 def render_lines(
     lines: list[str],
     voice: str = DEFAULT_VOICE,
@@ -128,6 +146,9 @@ def render_lines(
     buffers.append(np.zeros(tail_samples, dtype=np.float32))
 
     full = np.concatenate(buffers) if buffers else np.zeros(1, dtype=np.float32)
+
+    # RMS compression before normalization — evens out loud/quiet sentences
+    full = _soft_compress(full)
 
     # Single gentle overall normalization — preserves natural dynamics
     peak = float(np.max(np.abs(full)))

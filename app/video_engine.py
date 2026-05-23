@@ -22,7 +22,7 @@ from dataclasses import dataclass, field
 from pathlib import Path
 
 import numpy as np
-from PIL import Image, ImageDraw, ImageFont
+from PIL import Image, ImageDraw, ImageFilter, ImageFont
 
 from . import music as music_engine
 from . import tts_engine
@@ -260,10 +260,9 @@ def _bg_frame(base: np.ndarray, frame: int) -> Image.Image:
 
 
 # ── caption rendering ─────────────────────────────────────────────────────────
-def _draw_caption(img, layout: LineLayout, t_in_line: float, accent):
+def _draw_caption(img: Image.Image, layout: LineLayout, t_in_line: float, accent):
     if not layout.rows:
         return
-    draw = ImageDraw.Draw(img, "RGBA")
     words  = layout.line.text.split()
     prog   = max(0.0, min(1.0, t_in_line / max(layout.line.duration, 0.1)))
     target = prog * layout.total_w
@@ -283,14 +282,35 @@ def _draw_caption(img, layout: LineLayout, t_in_line: float, accent):
         pop = min(pop, max(0.0, remaining / 0.25))
     base_alpha = int(255 * pop)
 
-    y = HEIGHT // 2 - layout.block_h // 2
+    y0       = HEIGHT // 2 - layout.block_h // 2
     card_pad = 48
-    # card shadow
-    draw.rounded_rectangle(
-        [PAD - 8, y - card_pad, WIDTH - PAD + 8, y + layout.block_h + card_pad - 8],
-        radius=36, fill=(0, 0, 0, int(130 * pop)),
-    )
+    cx0, cy0 = PAD - 8, y0 - card_pad
+    cx1, cy1 = WIDTH - PAD + 8, y0 + layout.block_h + card_pad
 
+    # Frosted glass: downsample background → blur → upsample → dark tint → paste
+    if pop > 0.02:
+        region = img.crop((cx0, cy0, cx1, cy1))
+        cw, ch = region.size
+        # 1/4-scale blur is visually identical and ~16× cheaper than full-res blur
+        small  = region.resize((max(1, cw // 4), max(1, ch // 4)), Image.BILINEAR)
+        blurred = small.filter(ImageFilter.GaussianBlur(radius=4))
+        glass  = blurred.resize((cw, ch), Image.BILINEAR)
+        tint   = Image.new("RGBA", (cw, ch), (0, 0, 14, int(108 * pop)))
+        glass  = Image.alpha_composite(glass, tint)
+        # Rounded rectangle mask for glass card
+        mask   = Image.new("L", (cw, ch), 0)
+        ImageDraw.Draw(mask).rounded_rectangle(
+            [0, 0, cw - 1, ch - 1], radius=36, fill=int(245 * pop)
+        )
+        img.paste(glass, (cx0, cy0), mask=mask)
+
+    draw = ImageDraw.Draw(img, "RGBA")
+    if pop > 0.02:
+        # Subtle accent border on card
+        draw.rounded_rectangle([cx0, cy0, cx1, cy1], radius=36,
+                               fill=None, outline=(*accent, int(55 * pop)), width=2)
+
+    y   = y0
     idx = 0
     for row_words, row_wws, row_w in layout.rows:
         x = (WIDTH - row_w) / 2
@@ -301,7 +321,13 @@ def _draw_caption(img, layout: LineLayout, t_in_line: float, accent):
                 color = (*accent, base_alpha)
             else:
                 color = (160, 165, 180, int(base_alpha * 0.75))
-            draw.text((x + 2, y + 2), w, font=F_BODY, fill=(0, 0, 0, int(base_alpha * 0.6)))
+            # Drop shadow
+            draw.text((x + 2, y + 2), w, font=F_BODY, fill=(0, 0, 0, int(base_alpha * 0.55)))
+            # Glow halo on the currently-spoken word
+            if idx == active:
+                ga = int(base_alpha * 0.24)
+                for ox, oy in ((-3, 0), (3, 0), (0, -3), (0, 3), (-2, -2), (2, 2)):
+                    draw.text((x + ox, y + oy), w, font=F_BODY, fill=(*accent, ga))
             draw.text((x, y), w, font=F_BODY, fill=color)
             if idx == active:
                 uy = y + F_BODY.size + 4
@@ -312,7 +338,7 @@ def _draw_caption(img, layout: LineLayout, t_in_line: float, accent):
         y += layout.line_h
 
 
-def _draw_chrome(img, title, title_font, frame, total, accent, n_lines, cur_line, t):
+def _draw_chrome(img, title, title_font, title_w, frame, total, accent, n_lines, cur_line, t):
     draw = ImageDraw.Draw(img, "RGBA")
 
     # title fades in over 0.4s, holds at 85%, dims to 50% after 2s
@@ -321,8 +347,11 @@ def _draw_chrome(img, title, title_font, frame, total, accent, n_lines, cur_line
         hold = max(0.5, 1.0 - (t - 2.0) * 0.08)
         title_alpha = int(title_alpha * hold)
 
-    tw = draw.textlength(title, font=title_font)
-    tx = (WIDTH - tw) / 2
+    tx = (WIDTH - title_w) / 2
+    # Soft glow behind title text
+    ga = int(title_alpha * 0.18)
+    for ox, oy in ((-3, 0), (3, 0), (0, -3), (0, 3)):
+        draw.text((tx + ox, 150 + oy), title, font=title_font, fill=(*accent, ga))
     draw.text((tx + 2, 152), title, font=title_font, fill=(0, 0, 0, int(title_alpha * 0.55)))
     draw.text((tx, 150), title, font=title_font, fill=(*accent, title_alpha))
     # accent line under title
@@ -352,7 +381,7 @@ def _draw_chrome(img, title, title_font, frame, total, accent, n_lines, cur_line
 
 
 # ── frame composition ──────────────────────────────────────────────────────────
-def _compose(frame, total, t, title, title_font, layouts, theme, bokeh, bg_cache):
+def _compose(frame, total, t, title, title_font, title_w, layouts, theme, bokeh, bg_cache):
     """bg_cache is a local [base_array, last_frame] list passed from generate_video."""
     accent = theme["accent"]
 
@@ -376,7 +405,7 @@ def _compose(frame, total, t, title, title_font, layouts, theme, bokeh, bg_cache
         if t_in < lo.line.duration + 0.25:
             _draw_caption(img, lo, t_in, accent)
 
-    _draw_chrome(img, title, title_font, frame, total, accent, len(layouts), cur, t)
+    _draw_chrome(img, title, title_font, title_w, frame, total, accent, len(layouts), cur, t)
     # Return raw RGBA bytes — ffmpeg consumes rgba directly, saving a convert+copy
     return img.tobytes()
 
@@ -410,20 +439,33 @@ def _dc_block(audio: np.ndarray, rate: int = 22050) -> np.ndarray:
     return out
 
 
-def _haas_stereo(mono: np.ndarray, delay_samples: int = 180) -> np.ndarray:
-    """Convert mono to stereo using the Haas effect (short inter-channel delay).
+def _stereo_mix(voice: np.ndarray, music_bed: np.ndarray, music_vol: float,
+                delay_samples: int = 180) -> np.ndarray:
+    """Stereo mix: voice centred, music widened via Haas effect on right channel.
 
-    Delay of ~8ms (180 samples at 22050Hz) creates perceived width without
-    comb-filter artifacts. L channel is undelayed; R channel is delayed.
+    Keeping voice in the centre preserves intelligibility; the Haas delay on
+    the music bed creates perceived width without comb-filter colouration.
     """
-    n = len(mono)
-    left  = mono
-    right = np.zeros(n, dtype=np.float32)
+    n = max(len(voice), len(music_bed))
+    v = np.zeros(n, dtype=np.float32)
+    v[:len(voice)] = voice[:n]
+    m = np.zeros(n, dtype=np.float32)
+    m[:len(music_bed)] = music_bed[:n]
+    m *= music_vol
+    # Right music channel: delayed copy (Haas ~8ms)
+    m_r = np.zeros(n, dtype=np.float32)
     if delay_samples < n:
-        right[delay_samples:] = mono[:n - delay_samples]
+        m_r[delay_samples:] = m[:n - delay_samples]
     else:
-        right[:] = mono
-    # Interleave: [L0 R0 L1 R1 ...]
+        m_r[:] = m
+    left  = v + m
+    right = v + m_r
+    # Per-channel soft tanh limiter
+    peak = max(float(np.max(np.abs(left))), float(np.max(np.abs(right)))) + 1e-9
+    if peak > 0.95:
+        scale = 1.2 / peak
+        left  = np.tanh(left  * scale).astype(np.float32) * 0.95
+        right = np.tanh(right * scale).astype(np.float32) * 0.95
     stereo = np.empty(n * 2, dtype=np.float32)
     stereo[0::2] = left
     stereo[1::2] = right
@@ -432,22 +474,15 @@ def _haas_stereo(mono: np.ndarray, delay_samples: int = 180) -> np.ndarray:
 
 def _mix_audio(voice: np.ndarray, duration: float, mood: str,
                music_vol: float, content_seed: int, tmp: Path) -> Path:
-    bed = music_engine.generate(duration, mood=mood, seed=content_seed)
+    bed  = music_engine.generate(duration, mood=mood, seed=content_seed)
     rate = tts_engine.SAMPLE_RATE
-    target = int(duration * rate) + rate
-    v = np.zeros(target, dtype=np.float32)
-    v[:min(len(voice), target)] = voice[:target]
-    # Gentle DC block on voice — removes any Piper LF rumble
+    n    = int(duration * rate) + rate
+    v = np.zeros(n, dtype=np.float32)
+    v[:min(len(voice), n)] = voice[:n]
     v = _dc_block(v, rate)
-    m = np.zeros(target, dtype=np.float32)
-    m[:min(len(bed), target)] = bed[:target]
-    mix = v + m * music_vol
-    # Soft tanh limiter
-    peak = np.max(np.abs(mix)) + 1e-9
-    if peak > 0.95:
-        mix = np.tanh(mix / peak * 1.2) * 0.95
-    # Convert to stereo for platform compatibility
-    stereo = _haas_stereo(mix)
+    m = np.zeros(n, dtype=np.float32)
+    m[:min(len(bed), n)] = bed[:n]
+    stereo = _stereo_mix(v, m, music_vol)
     out = tmp / "audio.wav"
     _write_stereo_wav(stereo, out, rate)
     return out
@@ -499,6 +534,7 @@ def generate_video(
         total       = int(duration * FPS) + FPS
         bokeh       = _make_bokeh(theme_cfg["accent"], content_seed)
         title_font  = _fit_title_font(title)
+        title_w     = float(_MEASURE_DRAW.textlength(title, font=title_font))
         layouts     = _precompute_layouts(timed)
         bg_cache    = [None, -999]   # per-render cache, safe under _RENDER_LOCK
         report(25, "Rendering frames")
@@ -522,8 +558,8 @@ def generate_video(
         try:
             for f in range(total):
                 t     = f / FPS
-                frame = _compose(f, total, t, title, title_font, layouts,
-                                 theme_cfg, bokeh, bg_cache)
+                frame = _compose(f, total, t, title, title_font, title_w,
+                                 layouts, theme_cfg, bokeh, bg_cache)
                 proc.stdin.write(frame)  # frame is already bytes (RGBA)
                 if f % 30 == 0:
                     report(25 + int(70 * f / total), "Rendering frames")

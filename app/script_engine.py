@@ -37,12 +37,26 @@ def split_into_lines(text: str, max_chars: int = 64) -> list[str]:
             lines.append(s)
             continue
         chunks = textwrap.wrap(s, width=max_chars, break_long_words=False)
-        # merge a short orphan tail back into the previous chunk
+        # merge a short orphan tail back into the previous chunk (only if it fits)
         if len(chunks) >= 2 and len(chunks[-1].split()) <= 3:
-            chunks[-2] = chunks[-2] + " " + chunks[-1]
-            chunks.pop()
+            merged = chunks[-2] + " " + chunks[-1]
+            if len(merged) <= max_chars:
+                chunks[-2] = merged
+                chunks.pop()
         lines.extend(chunks)
     return [l for l in lines if l]
+
+
+_TITLE_PATTERNS = [
+    "{t}",
+    "The Truth About {t}",
+    "{t}: What Nobody Tells You",
+    "{t} Explained",
+    "Why {t} Matters",
+    "The Real Story Behind {t}",
+    "{t}: Shocking Facts",
+    "Everything You Know About {t} Is Wrong",
+]
 
 
 def make_title(topic: str) -> str:
@@ -50,9 +64,15 @@ def make_title(topic: str) -> str:
     if not t:
         return "Did You Know?"
     words = t.split()
-    if len(words) > 8:
-        t = " ".join(words[:8]) + "…"
-    return t[0].upper() + t[1:]
+    short = " ".join(words[:5]) if len(words) > 5 else " ".join(words)
+    short = short[0].upper() + short[1:]
+    seed = int(hashlib.sha256(t.encode()).hexdigest()[:8], 16)
+    pattern = _TITLE_PATTERNS[seed % len(_TITLE_PATTERNS)]
+    title = pattern.format(t=short)
+    # Never exceed 55 chars — title must fit the canvas
+    if len(title) > 55:
+        title = short[:52] + "…" if len(short) > 52 else short
+    return title
 
 
 # ── template engine (offline) ────────────────────────────────────────────────
@@ -103,6 +123,14 @@ _BEATS = [
     "Consistency beats intensity every single time.",
     "The people who get this right share one common habit.",
     "It compounds quietly until the results become undeniable.",
+    "The gap between knowing and doing is where most fail.",
+    "Your environment shapes your results more than willpower.",
+    "What you track consistently, you improve automatically.",
+    "Systems beat motivation every single time.",
+    "The feedback loop is where real learning happens.",
+    "Most advice ignores what actually drives long-term results.",
+    "Boredom is the price of mastery — and it is worth it.",
+    "The compounding effect applies to nearly everything.",
 ]
 
 _CTAS = [
@@ -194,6 +222,15 @@ _CATEGORY_BEATS: dict[str, list[str]] = {
         "Single-tasking beats multitasking by thirty percent.",
         "Your first ninety minutes are your most valuable.",
     ],
+    "tech": [
+        "AI is rewriting entire industries right now.",
+        "The automation wave will touch every job category.",
+        "Open-source tools made this accessible overnight.",
+        "The best engineers ship small changes every single day.",
+        "The gap between early and late adopters compounds fast.",
+        "Most tech breakthroughs started as side projects.",
+        "What looks like magic is just data and iteration.",
+    ],
 }
 
 _CATEGORY_KEYWORDS: dict[str, list[str]] = {
@@ -202,7 +239,8 @@ _CATEGORY_KEYWORDS: dict[str, list[str]] = {
     "finance":     ["money", "finance", "invest", "wealth", "debt", "stock", "crypto",
                     "budget", "saving", "income", "rich", "millionaire", "compound"],
     "psychology":  ["psychology", "mindset", "brain", "habit", "behavior", "anxiety",
-                    "trauma", "emotion", "narcissist", "dopamine", "cognitive", "mental"],
+                    "trauma", "emotion", "narcissist", "dopamine", "cognitive", "mental",
+                    "meditation", "mindful", "stress", "happiness", "gratitude"],
     "fitness":     ["workout", "exercise", "muscle", "gym", "cardio", "fat", "weight",
                     "strength", "training", "protein", "lift", "run", "fitness"],
     "history":     ["history", "ancient", "war", "empire", "civiliz", "century",
@@ -211,6 +249,9 @@ _CATEGORY_KEYWORDS: dict[str, list[str]] = {
                     "atom", "dna", "gene", "climate", "universe", "space", "nasa"],
     "productivity":["productiv", "focus", "procrastinat", "deep work", "routine",
                     "morning", "habit", "schedule", "goal", "discipline", "stoic"],
+    "tech":        ["ai", " tech", "software", "coding", "programming", "algorithm",
+                    "machine learning", "blockchain", "startup", "automation", "robot",
+                    "app", "crypto", "web3", "computer", "digital"],
 }
 
 
