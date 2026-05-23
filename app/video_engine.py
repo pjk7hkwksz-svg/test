@@ -285,11 +285,14 @@ def _draw_caption(img: Image.Image, layout: LineLayout, t_in_line: float, accent
     else:
         active = len(words) - 1
 
-    # Entry fade (first 0.15s), exit fade (last 0.25s of duration)
-    pop = min(1.0, t_in_line / 0.15)
+    # Entry: ease-out quadratic (snaps in quickly, settles smoothly)
+    t_entry = min(1.0, t_in_line / 0.15)
+    pop = 1.0 - (1.0 - t_entry) ** 2
+    # Exit: ease-in quadratic (accelerates away)
     remaining = layout.line.duration - t_in_line
     if remaining < 0.25:
-        pop = min(pop, max(0.0, remaining / 0.25))
+        t_exit = max(0.0, remaining / 0.25)
+        pop = min(pop, t_exit * t_exit)
     base_alpha = int(255 * pop)
 
     y0       = HEIGHT // 2 - layout.block_h // 2
@@ -470,6 +473,33 @@ def _dc_block(audio: np.ndarray, rate: int = 22050) -> np.ndarray:
     return out
 
 
+def _presence_boost(audio: np.ndarray, rate: int = 22050) -> np.ndarray:
+    """RBJ peaking EQ: +4 dB at 3 kHz, Q=0.8 — adds forward clarity to voice.
+
+    Biquad coefficients pre-computed for 22050 Hz sample rate.
+    Filter applied via chunk-based IIR loop (O(N), no scipy dependency).
+    """
+    # RBJ peak EQ: fc=3000, fs=22050, gain=+4dB, Q=0.8
+    b0, b1, b2 = 1.1594, -0.9541,  0.2953
+    a1, a2     =        -0.9541,  0.4548   # normalised (a0 = 1)
+    n = len(audio)
+    out = np.empty(n, dtype=np.float32)
+    CHUNK = 2048
+    x1 = x2 = y1 = y2 = 0.0
+    for ci in range(0, n, CHUNK):
+        seg = audio[ci:ci + CHUNK]
+        slen = len(seg)
+        buf = np.empty(slen, dtype=np.float32)
+        for j in range(slen):
+            x0 = float(seg[j])
+            y0 = b0 * x0 + b1 * x1 + b2 * x2 - a1 * y1 - a2 * y2
+            buf[j] = y0
+            x2, x1 = x1, x0
+            y2, y1 = y1, y0
+        out[ci:ci + slen] = buf
+    return out
+
+
 def _stereo_mix(voice: np.ndarray, music_bed: np.ndarray, music_vol: float,
                 delay_samples: int = 180) -> np.ndarray:
     """Stereo mix: voice centred, music widened via Haas effect on right channel.
@@ -511,6 +541,7 @@ def _mix_audio(voice: np.ndarray, duration: float, mood: str,
     v = np.zeros(n, dtype=np.float32)
     v[:min(len(voice), n)] = voice[:n]
     v = _dc_block(v, rate)
+    v = _presence_boost(v, rate)   # +4 dB @ 3 kHz for radio clarity
     m = np.zeros(n, dtype=np.float32)
     m[:min(len(bed), n)] = bed[:n]
     stereo = _stereo_mix(v, m, music_vol)
