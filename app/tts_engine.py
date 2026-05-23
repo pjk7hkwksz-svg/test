@@ -1,0 +1,136 @@
+"""
+Neural TTS engine built on Piper (offline, high quality).
+
+Synthesizes one caption line at a time so we get the exact audio duration of
+each line — that lets captions stay perfectly in sync with the voice, and lets
+us distribute words evenly for karaoke-style highlighting.
+"""
+
+from __future__ import annotations
+
+import wave
+from dataclasses import dataclass, field
+from pathlib import Path
+
+import numpy as np
+
+VOICES_DIR = Path(__file__).resolve().parent.parent / "voices"
+
+# Friendly name -> piper model file stem
+VOICE_MODELS = {
+    "ryan":   "en_US-ryan-medium",      # warm male narrator
+    "male":   "en_US-hfc_male-medium",  # clear neutral male
+    "female": "en_US-hfc_female-medium",# clear neutral female
+    "lessac": "en_US-lessac-medium",    # smooth neutral
+}
+
+DEFAULT_VOICE = "ryan"
+SAMPLE_RATE = 22050
+
+_VOICE_CACHE: dict[str, object] = {}
+
+
+@dataclass
+class Line:
+    """One caption line with its timing once rendered."""
+    text: str
+    audio: np.ndarray = field(default=None, repr=False)  # float32 mono
+    duration: float = 0.0
+    start: float = 0.0   # filled in by render()
+
+
+def available_voices() -> list[str]:
+    out = []
+    for name, stem in VOICE_MODELS.items():
+        if (VOICES_DIR / f"{stem}.onnx").exists():
+            out.append(name)
+    return out
+
+
+def _load_voice(name: str):
+    name = name if name in VOICE_MODELS else DEFAULT_VOICE
+    if name in _VOICE_CACHE:
+        return _VOICE_CACHE[name]
+    from piper import PiperVoice
+    stem = VOICE_MODELS[name]
+    model = VOICES_DIR / f"{stem}.onnx"
+    config = VOICES_DIR / f"{stem}.onnx.json"
+    if not model.exists():
+        raise FileNotFoundError(
+            f"Voice model {model} not found. Run setup.sh to download voices."
+        )
+    voice = PiperVoice.load(str(model), config_path=str(config))
+    _VOICE_CACHE[name] = voice
+    return voice
+
+
+def _synthesize(voice, text: str, length_scale: float) -> np.ndarray:
+    """Return float32 mono audio for `text`."""
+    try:
+        from piper import SynthesisConfig
+        syn = SynthesisConfig(length_scale=length_scale)
+        chunks = list(voice.synthesize(text, syn_config=syn))
+    except Exception:
+        chunks = list(voice.synthesize(text))
+    if not chunks:
+        return np.zeros(int(0.3 * SAMPLE_RATE), dtype=np.float32)
+    parts = [c.audio_float_array.astype(np.float32) for c in chunks]
+    return np.concatenate(parts)
+
+
+def render_lines(
+    lines: list[str],
+    voice: str = DEFAULT_VOICE,
+    speed: float = 1.0,
+    gap: float = 0.28,
+) -> tuple[list[Line], np.ndarray]:
+    """
+    Synthesize every line, insert a short silent gap between lines, and return
+    (timed_lines, full_audio_float32).
+
+    `speed` > 1 is faster speech (piper length_scale = 1/speed).
+    """
+    v = _load_voice(voice)
+    length_scale = 1.0 / max(0.5, min(2.0, speed))
+
+    gap_samples = int(gap * SAMPLE_RATE)
+    silence = np.zeros(gap_samples, dtype=np.float32)
+
+    timed: list[Line] = []
+    buffers: list[np.ndarray] = []
+    cursor = 0.0
+    # small lead-in so the first word doesn't clip the video start
+    lead = np.zeros(int(0.4 * SAMPLE_RATE), dtype=np.float32)
+    buffers.append(lead)
+    cursor += len(lead) / SAMPLE_RATE
+
+    for i, text in enumerate(lines):
+        audio = _synthesize(v, text, length_scale)
+        # gentle normalize per line
+        peak = float(np.max(np.abs(audio))) if audio.size else 0.0
+        if peak > 0:
+            audio = audio * (0.92 / peak)
+        dur = len(audio) / SAMPLE_RATE
+        line = Line(text=text, audio=audio, duration=dur, start=cursor)
+        timed.append(line)
+        buffers.append(audio)
+        cursor += dur
+        if i < len(lines) - 1:
+            buffers.append(silence)
+            cursor += gap
+    # tail
+    tail = np.zeros(int(0.8 * SAMPLE_RATE), dtype=np.float32)
+    buffers.append(tail)
+
+    full = np.concatenate(buffers) if buffers else np.zeros(1, dtype=np.float32)
+    return timed, full
+
+
+def write_wav(audio: np.ndarray, path: Path, rate: int = SAMPLE_RATE):
+    audio = np.clip(audio, -1.0, 1.0)
+    pcm = (audio * 32767).astype(np.int16)
+    with wave.open(str(path), "wb") as w:
+        w.setnchannels(1)
+        w.setsampwidth(2)
+        w.setframerate(rate)
+        w.writeframes(pcm.tobytes())

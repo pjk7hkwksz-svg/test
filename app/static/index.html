@@ -1,0 +1,75 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8" />
+<meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover, maximum-scale=1" />
+<meta name="theme-color" content="#0b0a1a" />
+<meta name="apple-mobile-web-app-capable" content="yes" />
+<meta name="apple-mobile-web-app-status-bar-style" content="black-translucent" />
+<link rel="manifest" href="/manifest.webmanifest" />
+<link rel="apple-touch-icon" href="/icon-192.png" />
+<link rel="stylesheet" href="/styles.css" />
+<title>ShortMagic — AI Video Maker</title>
+</head>
+<body>
+<div class="app">
+  <header class="top">
+    <div class="logo">▶</div>
+    <div class="brand">
+      <h1>ShortMagic</h1>
+      <span id="modeBadge" class="badge">offline AI</span>
+    </div>
+  </header>
+
+  <!-- ===== CREATE ===== -->
+  <section id="createView" class="view">
+    <label class="field-label">What's your video about?</label>
+    <textarea id="content" rows="3"
+      placeholder="e.g. 3 morning habits that boost focus"></textarea>
+
+    <div class="seg" id="modeSeg">
+      <button class="seg-btn active" data-mode="topic">✨ Auto-script</button>
+      <button class="seg-btn" data-mode="script">📝 My script</button>
+    </div>
+    <p class="hint" id="modeHint">Give a topic — we write the script for you.</p>
+
+    <label class="field-label">Voice</label>
+    <div class="chips" id="voiceChips"></div>
+
+    <label class="field-label">Style</label>
+    <div class="themes" id="themeChips"></div>
+
+    <label class="field-label">Pace <span id="speedVal" class="dim">normal</span></label>
+    <input type="range" id="speed" min="0.8" max="1.25" step="0.05" value="1" />
+
+    <button id="genBtn" class="primary">Generate video</button>
+    <p class="foot">Neural voice · animated visuals · music — all on-device.</p>
+  </section>
+
+  <!-- ===== PROGRESS ===== -->
+  <section id="progressView" class="view hidden">
+    <div class="phone-frame">
+      <div class="spinner"></div>
+      <div class="pct" id="pct">0%</div>
+    </div>
+    <div class="bar"><div id="barFill" class="bar-fill"></div></div>
+    <p id="statusMsg" class="status">Starting…</p>
+    <div id="scriptPreview" class="script-preview"></div>
+    <button id="cancelBtn" class="ghost">Cancel</button>
+  </section>
+
+  <!-- ===== RESULT ===== -->
+  <section id="resultView" class="view hidden">
+    <video id="player" controls playsinline loop></video>
+    <h2 id="resultTitle"></h2>
+    <div class="row">
+      <a id="downloadBtn" class="primary" download>⬇ Download</a>
+      <button id="againBtn" class="ghost">↺ New video</button>
+    </div>
+  </section>
+
+  <div id="toast" class="toast hidden"></div>
+</div>
+<script src="/app.js"></script>
+</body>
+</html>
