@@ -38,7 +38,7 @@ def split_into_lines(text: str, max_chars: int = 64) -> list[str]:
             continue
         chunks = textwrap.wrap(s, width=max_chars, break_long_words=False)
         # merge a short orphan tail back into the previous chunk
-        if len(chunks) >= 2 and len(chunks[-1].split()) <= 2:
+        if len(chunks) >= 2 and len(chunks[-1].split()) <= 3:
             chunks[-2] = chunks[-2] + " " + chunks[-1]
             chunks.pop()
         lines.extend(chunks)
@@ -62,20 +62,20 @@ _HOOKS = [
     "Most people get {topic} completely wrong.",
     "This is why {topic} matters more than you think.",
     "Stop scrolling — this changes how you see {topic}.",
-    "The truth about {topic} is wilder than you'd expect.",
-    "I wish someone told me this about {topic} sooner.",
-    "What they never teach you about {topic} in school.",
-    "Three things about {topic} that will blow your mind.",
+    "The truth about {topic} is surprising.",
+    "I wish someone told me about {topic} sooner.",
+    "Schools never teach you this about {topic}.",
+    "Three facts about {topic} that will shock you.",
     "This one fact about {topic} changes everything.",
-    "Nobody talks about what {topic} really does to you.",
-    "The hidden side of {topic} most people never discover.",
-    "Everything you believe about {topic} is probably wrong.",
+    "Nobody talks about what {topic} does to you.",
+    "The hidden side of {topic} nobody discovers.",
+    "Most beliefs about {topic} are flat wrong.",
     "Here is the real story behind {topic}.",
-    "If you care about {topic}, you need to watch this.",
-    "Scientists just revealed something shocking about {topic}.",
-    "Your {topic} routine is missing this crucial step.",
-    "The uncomfortable truth about {topic} nobody wants to hear.",
-    "Why {topic} is more powerful than you ever imagined.",
+    "If you care about {topic}, watch this.",
+    "New research on {topic} shocked scientists.",
+    "Your {topic} routine is missing this step.",
+    "The truth about {topic} nobody wants to hear.",
+    "Why {topic} is more powerful than you think.",
 ]
 
 _BEATS = [
@@ -111,7 +111,7 @@ _CTAS = [
     "Which part surprised you most?",
     "Share this with someone who needs it.",
     "Follow for more mind-blowing facts.",
-    "Drop a comment if this changed how you think about {topic}.",
+    "Comment if this changed how you see {topic}.",
     "Follow to learn what most people never discover.",
     "Tag someone who needs to hear this today.",
     "Save this — you will want to rewatch it.",
@@ -222,11 +222,19 @@ def _detect_category(topic: str) -> str | None:
     return None
 
 
+def _short_topic(topic: str, max_words: int = 4) -> str:
+    """Return a short version of the topic for use in hook/CTA templates."""
+    words = topic.strip().rstrip(".!?").split()
+    return " ".join(words[:max_words]) if len(words) > max_words else " ".join(words)
+
+
 def _template_script(topic: str, beats: int = 6) -> list[str]:
     rng = random.Random(_stable_seed(topic))
     t = topic.strip().rstrip(".!?") or "this"
+    # Use a short version in hooks/CTAs so lines don't exceed caption width
+    t_short = _short_topic(t, max_words=3)
 
-    lines = [rng.choice(_HOOKS).format(topic=t)]
+    lines = [rng.choice(_HOOKS).format(topic=t_short)]
 
     # Mix generic beats with category-specific ones for relevance
     cat = _detect_category(topic)
@@ -241,8 +249,8 @@ def _template_script(topic: str, beats: int = 6) -> list[str]:
 
     rng.shuffle(pool)
     for b in pool[:max(3, beats)]:
-        lines.append(b.format(topic=t))
-    lines.append(rng.choice(_CTAS).format(topic=t))
+        lines.append(b.format(topic=t_short))
+    lines.append(rng.choice(_CTAS).format(topic=t_short))
     return lines
 
 

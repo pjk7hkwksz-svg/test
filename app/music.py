@@ -81,11 +81,21 @@ def _soft_kick(rate: int, dur: float = 0.18) -> np.ndarray:
     return (body * env * 0.5).astype(np.float32)
 
 
-def _hat(rate: int, dur: float = 0.05) -> np.ndarray:
+def _hat(rate: int, rng, dur: float = 0.05) -> np.ndarray:
     n = int(dur * rate)
-    noise = np.random.uniform(-1, 1, n).astype(np.float32)
+    noise = rng.uniform(-1, 1, n).astype(np.float32)
     env = np.exp(-np.arange(n) / rate * 90)
     return noise * env * 0.12
+
+
+def _bass_note(midi: int, dur: float, rate: int) -> np.ndarray:
+    """Soft sub-bass sine note with gentle ADSR."""
+    n = int(dur * rate)
+    t = np.arange(n) / rate
+    f = _midi_to_freq(midi - 12)  # one octave below chord root
+    wave = np.sin(2 * np.pi * f * t).astype(np.float32)
+    env = _adsr(n, a=dur * 0.05, d=dur * 0.1, s=0.7, r=dur * 0.4, rate=rate)
+    return wave * env * 0.35
 
 
 def generate(
@@ -109,11 +119,14 @@ def generate(
     total = int(duration * SAMPLE_RATE) + SAMPLE_RATE
     track = np.zeros(total, dtype=np.float32)
 
+    # Randomize chord order slightly per seed (rotate start position)
+    prog_start = int(rng.integers(0, len(prog)))
+
     # chord pad: 2-bar chords
     beat = 60.0 / bpm
     chord_dur = beat * 4
     pos = 0.0
-    ci = 0
+    ci = prog_start
     while pos < duration + chord_dur:
         chord = prog[ci % len(prog)]
         seg = _pad_chord(chord, root, chord_dur * 1.05, SAMPLE_RATE, rng)
@@ -121,13 +134,19 @@ def generate(
         e = min(s + len(seg), total)
         if s < total and e > s:
             track[s:e] += seg[:e - s] * 0.6
+        # Sub-bass on root note of each chord
+        bass_root = root + chord[0]
+        b_seg = _bass_note(bass_root, chord_dur * 0.95, SAMPLE_RATE)
+        e_b = min(s + len(b_seg), total)
+        if s < total and e_b > s:
+            track[s:e_b] += b_seg[:e_b - s]
         pos += chord_dur
         ci += 1
 
     # percussion
     if has_beat:
         kick = _soft_kick(SAMPLE_RATE)
-        hat = _hat(SAMPLE_RATE)
+        hat = _hat(SAMPLE_RATE, rng)
         step = 0.0
         i = 0
         while step < duration:
