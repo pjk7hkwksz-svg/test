@@ -1,0 +1,10 @@
+services:
+  - type: web
+    name: shortmagic
+    runtime: docker
+    branch: claude/goal-setting-8y0rp
+    plan: free
+    healthCheckPath: /api/options
+    envVars:
+      - key: PORT
+        value: 8000

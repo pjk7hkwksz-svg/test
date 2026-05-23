@@ -94,14 +94,15 @@ def _make_vignette() -> np.ndarray:
 
 _VIGNETTE = _make_vignette()
 
-def _make_grain(n: int = 10) -> list[np.ndarray]:
+def _make_grain(n: int = 4) -> list[np.ndarray]:
+    """Store grain as int8 to keep memory ~4 MB total instead of ~80 MB."""
     rng = np.random.default_rng(99)
     out = []
     for _ in range(n):
-        g = rng.normal(0, 1, (HEIGHT // 3, WIDTH // 3, 1)).astype(np.float32)
-        img = Image.fromarray(((g[..., 0] * 8) + 128).clip(0, 255).astype(np.uint8))
+        g = rng.integers(-18, 18, (HEIGHT // 4, WIDTH // 4, 1), dtype=np.int8)
+        img = Image.fromarray((g[..., 0].astype(np.int16) + 128).clip(0, 255).astype(np.uint8))
         img = img.resize((WIDTH, HEIGHT), Image.BILINEAR)
-        out.append((np.asarray(img, dtype=np.float32)[..., None] - 128.0))
+        out.append((np.asarray(img, dtype=np.int16)[..., None] - 128).astype(np.int8))
     return out
 
 _GRAIN = _make_grain()
@@ -282,7 +283,7 @@ def _compose(frame, total, t, title, lines, theme, bokeh):
     bg = _mesh_background(t, palette, bokeh, accent)
     arr = np.asarray(bg, dtype=np.float32)
     arr *= _VIGNETTE
-    arr += _GRAIN[frame % len(_GRAIN)] * 0.35
+    arr += _GRAIN[frame % len(_GRAIN)].astype(np.float32) * 0.35
     arr = arr.clip(0, 255).astype(np.uint8)
     img = Image.fromarray(arr, "RGB").convert("RGBA")
 
