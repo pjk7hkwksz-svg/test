@@ -250,6 +250,8 @@ $("cancelBtn").onclick = async () => {
 };
 
 $("againBtn").onclick = () => {
+  state.job = null;
+  state.pollErrors = 0;
   $("scriptPreview").dataset.filled = "";
   const player = $("player");
   player.pause();
@@ -261,6 +263,35 @@ $("againBtn").onclick = () => {
 function escapeHtml(s) {
   return String(s).replace(/[&<>]/g, c => ({ "&": "&amp;", "<": "&lt;", ">": "&gt;" }[c]));
 }
+
+// Example topic chips — click to populate the textarea
+const EXAMPLES = [
+  "3 habits for better sleep",
+  "Bitcoin explained simply",
+  "Cold shower benefits",
+  "Morning routines of CEOs",
+  "Stoic philosophy",
+  "Intermittent fasting tips",
+  "The science of dopamine",
+  "How to build muscle fast",
+  "Ancient Rome secrets",
+  "AI changing the world",
+];
+(function buildExamples() {
+  const el = $("examples");
+  if (!el) return;
+  EXAMPLES.forEach((ex) => {
+    const b = document.createElement("button");
+    b.className = "eg";
+    b.textContent = ex;
+    b.onclick = () => {
+      $("content").value = ex;
+      $("content").dispatchEvent(new Event("input"));
+      $("content").focus();
+    };
+    el.appendChild(b);
+  });
+})();
 
 if ("serviceWorker" in navigator) {
   navigator.serviceWorker.register("/sw.js").catch(() => {});

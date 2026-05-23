@@ -65,6 +65,9 @@ def _pad_chord(notes: list[int], root: int, dur: float, rate: int, rng) -> np.nd
             detune = 1.0 + (0.002 * ((semi % 3) - 1))
             out += amp * np.sin(2 * np.pi * f * k * detune * t)
     out /= max(1, len(notes)) * 1.6
+    # Soft tape saturation: mix clean + tanh-clipped for harmonic warmth
+    # 1/tanh(1.5) ≈ 1.1043 — keeps unity gain at clip point
+    out = (0.7 * out + 0.3 * np.tanh(out * 1.5) * 1.1043).astype(np.float32)
     # slow tremolo — speed varied by seed
     tremolo_rate = 0.12 + rng.random() * 0.08
     out *= 0.85 + 0.15 * np.sin(2 * np.pi * tremolo_rate * t)

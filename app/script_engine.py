@@ -233,6 +233,33 @@ _CATEGORY_BEATS: dict[str, list[str]] = {
     ],
 }
 
+_CATEGORY_CTAS: dict[str, list[str]] = {
+    "health":      ["Save this before your next doctor visit.",
+                    "Follow for evidence-based health tips.",
+                    "Share this with someone who needs it."],
+    "finance":     ["Follow for daily money insights.",
+                    "Save this — your future self will thank you.",
+                    "Share this before the algorithm buries it."],
+    "psychology":  ["Tag someone who needs to hear this.",
+                    "Follow for weekly mind-expanding content.",
+                    "Save this and read it on a hard day."],
+    "fitness":     ["Save this for your next workout.",
+                    "Follow for more evidence-based fitness tips.",
+                    "Tag your gym partner."],
+    "history":     ["Follow for more forgotten history.",
+                    "Which part shocked you most? Drop it below.",
+                    "Save this — history class never taught this."],
+    "science":     ["Follow for science that actually amazes you.",
+                    "Share this with a curious friend.",
+                    "Like if science still surprises you."],
+    "productivity":["Follow for more focus and performance hacks.",
+                    "Save this for your next planning session.",
+                    "Which will you try first?"],
+    "tech":        ["Follow for more AI and tech insights.",
+                    "Share this before everyone else figures it out.",
+                    "Drop a comment if this changed your view."],
+}
+
 _CATEGORY_KEYWORDS: dict[str, list[str]] = {
     "health":      ["health", "diet", "sleep", "gut", "food", "nutrition", "disease",
                     "immune", "cancer", "blood", "body", "brain", "hormone", "vitamin"],
@@ -291,7 +318,9 @@ def _template_script(topic: str, beats: int = 6) -> list[str]:
     rng.shuffle(pool)
     for b in pool[:max(3, beats)]:
         lines.append(b.format(topic=t_short))
-    lines.append(rng.choice(_CTAS).format(topic=t_short))
+    # Use category-specific CTA when available, otherwise generic
+    cta_pool = _CATEGORY_CTAS.get(cat, []) + _CTAS if cat else _CTAS
+    lines.append(rng.choice(cta_pool).format(topic=t_short))
     return lines
 
 

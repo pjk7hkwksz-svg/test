@@ -358,10 +358,11 @@ def _draw_chrome(img, title, title_font, title_w, frame, total, accent, n_lines,
         title_alpha = int(title_alpha * hold)
 
     tx = (WIDTH - title_w) / 2
-    # Soft glow behind title text
-    ga = int(title_alpha * 0.18)
-    for ox, oy in ((-3, 0), (3, 0), (0, -3), (0, 3)):
-        draw.text((tx + ox, 150 + oy), title, font=title_font, fill=(*accent, ga))
+    # Glow halo only while title is prominent (first ~2s) — skips 4 draws/frame later
+    if title_alpha > 140:
+        ga = int(title_alpha * 0.18)
+        for ox, oy in ((-3, 0), (3, 0), (0, -3), (0, 3)):
+            draw.text((tx + ox, 150 + oy), title, font=title_font, fill=(*accent, ga))
     draw.text((tx + 2, 152), title, font=title_font, fill=(0, 0, 0, int(title_alpha * 0.55)))
     draw.text((tx, 150), title, font=title_font, fill=(*accent, title_alpha))
     # accent line under title
@@ -544,7 +545,7 @@ def generate_video(
     theme_cfg  = THEMES.get(theme, THEMES[DEFAULT_THEME])
     out_path   = Path(out_path)
     out_path.parent.mkdir(parents=True, exist_ok=True)
-    content_seed = int(hashlib.md5(title.encode()).hexdigest()[:8], 16)
+    content_seed = int(hashlib.sha256(title.encode()).hexdigest()[:8], 16)
 
     def report(p, m):
         if progress:

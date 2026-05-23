@@ -43,6 +43,15 @@ textarea{
 textarea:focus{outline:none;border-color:var(--accent);
   box-shadow:0 0 0 3px rgba(138,180,255,.1)}
 
+/* ── example topic chips ── */
+.examples{display:flex;gap:7px;flex-wrap:wrap;margin:9px 0 2px}
+.eg{background:rgba(255,255,255,.06);border:1px solid rgba(255,255,255,.1);
+  color:var(--dim);padding:6px 11px;border-radius:20px;font-size:12px;
+  font-weight:500;cursor:pointer;transition:.15s;font-family:inherit;
+  white-space:nowrap}
+.eg:active{transform:scale(.96);background:rgba(138,180,255,.12);color:var(--accent)}
+@media(hover:hover){.eg:hover{background:rgba(138,180,255,.1);color:var(--txt);border-color:rgba(138,180,255,.3)}}
+
 /* ── mode segment ── */
 .seg{display:flex;gap:8px;background:var(--card);padding:5px;border-radius:14px;
   margin-top:14px}
