@@ -1,0 +1,8 @@
+.tmp_tiktok/
+voices/
+app/jobs/
+output/
+__pycache__/
+*.pyc
+*.wav
+/tmp/

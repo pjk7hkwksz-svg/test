@@ -1,0 +1,87 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8" />
+<meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover, maximum-scale=1" />
+<meta name="theme-color" content="#0b0a1a" />
+<meta name="apple-mobile-web-app-capable" content="yes" />
+<meta name="apple-mobile-web-app-status-bar-style" content="black-translucent" />
+<meta name="description" content="Type a topic, get a TikTok-style video with AI voice, animated visuals and music." />
+<link rel="manifest" href="/manifest.webmanifest" />
+<link rel="apple-touch-icon" href="/icon-192.png" />
+<link rel="stylesheet" href="/styles.css" />
+<title>ShortMagic — AI Video Maker</title>
+</head>
+<body>
+<div class="app">
+  <header class="top">
+    <div class="logo" aria-hidden="true">▶</div>
+    <div class="brand">
+      <h1>ShortMagic</h1>
+      <span id="modeBadge" class="badge">offline AI</span>
+    </div>
+  </header>
+
+  <!-- ===== CREATE ===== -->
+  <section id="createView" class="view" aria-label="Create video">
+    <label class="field-label" for="content">What's your video about?</label>
+    <textarea id="content" rows="3"
+      placeholder="e.g. 3 morning habits that boost focus"
+      autocapitalize="sentences" spellcheck="true" enterkeyhint="done"></textarea>
+    <div id="charCount" class="char-count"></div>
+    <div class="examples" id="examples" aria-label="Example topics"></div>
+
+    <div class="seg" id="modeSeg" role="group" aria-label="Script mode">
+      <button class="seg-btn active" data-mode="topic">✨ Auto-script</button>
+      <button class="seg-btn" data-mode="script">📝 My script</button>
+    </div>
+    <p class="hint" id="modeHint">Give a topic — we write the script for you.</p>
+
+    <label class="field-label">Voice</label>
+    <div class="chips" id="voiceChips" role="group" aria-label="Choose voice"></div>
+
+    <label class="field-label">Style</label>
+    <div class="themes" id="themeChips" role="group" aria-label="Choose visual theme"></div>
+
+    <label class="field-label">Pace <span id="speedVal" class="dim">normal</span></label>
+    <input type="range" id="speed" min="0.8" max="1.25" step="0.05" value="1"
+      aria-label="Speech pace" />
+
+    <button id="genBtn" class="primary" aria-live="polite">Generate video</button>
+    <p class="foot">Neural voice · animated visuals · music — all on-device</p>
+  </section>
+
+  <!-- ===== PROGRESS ===== -->
+  <section id="progressView" class="view hidden" aria-label="Generating video" aria-live="polite">
+    <div class="phone-frame" aria-hidden="true">
+      <div class="spinner"></div>
+      <div class="pct" id="pct">0%</div>
+    </div>
+    <div class="bar" role="progressbar" aria-valuemin="0" aria-valuemax="100"
+         id="progressBar" aria-valuenow="0">
+      <div id="barFill" class="bar-fill"></div>
+    </div>
+    <p id="statusMsg" class="status" aria-live="polite">Starting…</p>
+    <p id="queueMsg" class="hint dim queue-msg"></p>
+    <div id="scriptPreview" class="script-preview" aria-label="Script preview"></div>
+    <button id="cancelBtn" class="ghost">Cancel</button>
+  </section>
+
+  <!-- ===== RESULT ===== -->
+  <section id="resultView" class="view hidden" aria-label="Your video is ready">
+    <video id="player" controls playsinline loop preload="auto"
+      aria-label="Generated video"></video>
+    <h2 id="resultTitle" class="result-title"></h2>
+    <p id="resultMeta" class="hint dim result-meta"></p>
+    <div class="row">
+      <a id="downloadBtn" class="primary" download aria-label="Download video">⬇ Download</a>
+      <button id="shareBtn" class="ghost hidden" aria-label="Share video">⬆ Share</button>
+    </div>
+    <button id="againBtn" class="ghost">↺ New video</button>
+  </section>
+
+  <div id="toast" class="toast hidden" role="alert" aria-live="assertive"></div>
+</div>
+<script src="/app.js"></script>
+</body>
+</html>
