@@ -234,19 +234,26 @@ def _mesh_base(t: float, palette, bokeh, accent) -> np.ndarray:
     # Apply vignette here (low-res) — avoids a full-res float32 multiply later
     field *= _LOW_VIGNETTE
 
-    # Bokeh drawn into the low-res image
+    # Bokeh drawn into the low-res image — ring+glow for real lens bokeh look
     img  = Image.fromarray(field.clip(0, 255).astype(np.uint8), "RGB")
     draw = ImageDraw.Draw(img, "RGBA")
     for b in bokeh:
         bx = (b.cx + math.cos(t * b.spd * 5 + b.phase) * 0.06) * LOW_W
         by = ((b.cy - t * b.spd) % 1.0) * LOW_H
         if b.col == 0:
-            col, a = accent, 30
+            col, a = accent, 34
         elif b.col == 1:
-            col, a = (255, 255, 255), 20
+            col, a = (255, 255, 255), 24
         else:
-            col, a = (200, 200, 220), 14
-        draw.ellipse([bx - b.r, by - b.r, bx + b.r, by + b.r], fill=(*col, a))
+            col, a = (200, 200, 220), 16
+        r = b.r
+        # Bright edge ring (characteristic bokeh look) + dim fill + inner glow
+        ring_w = max(1, int(r * 0.14))
+        draw.ellipse([bx - r, by - r, bx + r, by + r],
+                     fill=(*col, a // 5), outline=(*col, a), width=ring_w)
+        r_in = max(1.0, r * 0.28)
+        draw.ellipse([bx - r_in, by - r_in, bx + r_in, by + r_in],
+                     fill=(*col, a // 4))
 
     return np.asarray(img, dtype=np.float32)  # (LOW_H, LOW_W, 3)
 

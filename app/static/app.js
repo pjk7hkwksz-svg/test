@@ -1,6 +1,6 @@
 const $ = (id) => document.getElementById(id);
 const MAX_CONTENT = 2000;
-const state = { mode: "topic", voice: "ryan", theme: "midnight", speed: 1, job: null, pollTimer: null, pollDelay: 1200 };
+const state = { mode: "topic", voice: "ryan", theme: "midnight", speed: 1, job: null, pollTimer: null, pollDelay: 1200, pollErrors: 0 };
 
 const THEME_COLORS = {
   midnight: "linear-gradient(150deg,#1e1450,#0a1e4a)",
@@ -125,6 +125,7 @@ $("genBtn").onclick = async () => {
     }
     const { job_id } = await r.json();
     state.job = job_id;
+    state.pollErrors = 0;
     schedulePoll();
   } catch (e) {
     show("createView");
@@ -153,7 +154,12 @@ async function doPoll() {
   if (!state.job) return;
   try {
     const r = await fetch("/api/status/" + state.job);
-    if (!r.ok) { schedulePoll(); return; }
+    if (!r.ok) {
+      state.pollErrors++;
+      if (state.pollErrors > 6) { show("createView"); toast("Server error — please try again", true); return; }
+      schedulePoll(); return;
+    }
+    state.pollErrors = 0;
     const s = await r.json();
     setProgress(s.progress || 0, s.message);
 
@@ -187,6 +193,8 @@ async function doPoll() {
     state.pollDelay = Math.min(state.pollDelay * 1.5, 4000);
     schedulePoll();
   } catch (e) {
+    state.pollErrors++;
+    if (state.pollErrors > 10) { show("createView"); toast("Lost connection to server", true); return; }
     schedulePoll();
   }
 }
@@ -198,13 +206,36 @@ function showResult(s) {
     $("resultMeta").textContent = "Playback error";
   };
   player.src = "/api/video/" + state.job + "?t=" + Date.now();
-  $("downloadBtn").href = "/api/download/" + state.job;
+  const dlUrl = "/api/download/" + state.job;
+  $("downloadBtn").href = dlUrl;
 
   const meta = [];
   if (s && s.title) meta.push(s.title);
   if (s && s.size_mb) meta.push(s.size_mb + " MB");
   $("resultTitle").textContent = s && s.title ? s.title : "";
   if ($("resultMeta")) $("resultMeta").textContent = meta.length > 1 ? meta[1] : "";
+
+  // Show native share button when Web Share API is available
+  const shareBtn = $("shareBtn");
+  if (navigator.share) {
+    shareBtn.classList.remove("hidden");
+    shareBtn.onclick = async () => {
+      try {
+        const r = await fetch(dlUrl);
+        const blob = await r.blob();
+        const file = new File([blob], "video.mp4", { type: "video/mp4" });
+        if (navigator.canShare && navigator.canShare({ files: [file] })) {
+          await navigator.share({ files: [file], title: (s && s.title) || "My Video" });
+        } else {
+          await navigator.share({ title: (s && s.title) || "My Video", url: location.href });
+        }
+      } catch (e) {
+        if (e.name !== "AbortError") toast("Share failed", true);
+      }
+    };
+  } else {
+    shareBtn.classList.add("hidden");
+  }
 
   show("resultView");
 }

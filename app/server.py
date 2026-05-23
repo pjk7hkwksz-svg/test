@@ -183,6 +183,12 @@ def _validate_job_id(job_id: str):
         raise HTTPException(400, "Invalid job id")
 
 
+@app.get("/health")
+def health():
+    """Liveness probe for Render / Fly / Docker healthchecks."""
+    return {"status": "ok", "voices": len(tts_engine.available_voices())}
+
+
 @app.get("/api/options")
 def options():
     _cleanup_old_jobs()

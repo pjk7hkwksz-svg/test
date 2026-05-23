@@ -170,3 +170,10 @@ input[type=range]{width:100%;accent-color:var(--accent2);height:30px;cursor:poin
 ::-webkit-scrollbar{width:4px}
 ::-webkit-scrollbar-track{background:transparent}
 ::-webkit-scrollbar-thumb{background:var(--card2);border-radius:4px}
+
+/* ── accessibility: reduce motion ── */
+@media(prefers-reduced-motion:reduce){
+  *{animation-duration:.01ms!important;transition-duration:.01ms!important}
+  .spinner{animation:none;border-top-color:var(--accent)}
+  .phone-frame{animation:none}
+}

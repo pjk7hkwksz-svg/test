@@ -55,7 +55,7 @@ _TITLE_PATTERNS = [
     "Why {t} Matters",
     "The Real Story Behind {t}",
     "{t}: Shocking Facts",
-    "Everything You Know About {t} Is Wrong",
+    "What Nobody Tells You About {t}",
 ]
 
 
@@ -64,14 +64,14 @@ def make_title(topic: str) -> str:
     if not t:
         return "Did You Know?"
     words = t.split()
-    short = " ".join(words[:5]) if len(words) > 5 else " ".join(words)
+    # 3-word cap ensures any pattern stays ≤ 55 chars on canvas
+    short = " ".join(words[:3]) if len(words) > 3 else " ".join(words)
     short = short[0].upper() + short[1:]
     seed = int(hashlib.sha256(t.encode()).hexdigest()[:8], 16)
     pattern = _TITLE_PATTERNS[seed % len(_TITLE_PATTERNS)]
     title = pattern.format(t=short)
-    # Never exceed 55 chars — title must fit the canvas
     if len(title) > 55:
-        title = short[:52] + "…" if len(short) > 52 else short
+        title = short if len(short) <= 55 else short[:52] + "…"
     return title
 
 

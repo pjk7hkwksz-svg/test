@@ -88,14 +88,27 @@ def _hat(rate: int, rng, dur: float = 0.05) -> np.ndarray:
     return noise * env * 0.12
 
 
+def _soft_snare(rate: int, rng, dur: float = 0.09) -> np.ndarray:
+    """Lo-fi snare: one-pole filtered noise for a punchy thwack on beats 2 and 4."""
+    n = int(dur * rate)
+    noise = rng.uniform(-1, 1, n).astype(np.float32)
+    # One-pole lowpass (α=0.55) — removes harsh ultra-highs, keeps the body
+    alpha = 0.55
+    for i in range(1, n):
+        noise[i] = alpha * noise[i - 1] + (1 - alpha) * noise[i]
+    env = np.exp(-np.arange(n, dtype=np.float32) / rate * 38)
+    return (noise * env * 0.15).astype(np.float32)
+
+
 def _bass_note(midi: int, dur: float, rate: int) -> np.ndarray:
-    """Soft sub-bass sine note with gentle ADSR."""
+    """Warm sub-bass: fundamental + subtle 2nd harmonic for body."""
     n = int(dur * rate)
     t = np.arange(n) / rate
     f = _midi_to_freq(midi - 12)  # one octave below chord root
-    wave = np.sin(2 * np.pi * f * t).astype(np.float32)
+    # 2nd harmonic at -16 dB adds warmth without muddiness
+    wave = (np.sin(2 * np.pi * f * t) + 0.15 * np.sin(4 * np.pi * f * t)).astype(np.float32)
     env = _adsr(n, a=dur * 0.05, d=dur * 0.1, s=0.7, r=dur * 0.4, rate=rate)
-    return wave * env * 0.35
+    return wave * env * 0.33
 
 
 def generate(
@@ -145,8 +158,11 @@ def generate(
 
     # percussion
     if has_beat:
-        kick = _soft_kick(SAMPLE_RATE)
-        hat = _hat(SAMPLE_RATE, rng)
+        kick  = _soft_kick(SAMPLE_RATE)
+        hat   = _hat(SAMPLE_RATE, rng)
+        # Snare on beats 2+4 for fuller sound; not on tense (keeps it sparse/driving)
+        use_snare = mood in ("uplifting", "epic")
+        snare = _soft_snare(SAMPLE_RATE, rng) if use_snare else None
         step = 0.0
         i = 0
         while step < duration:
@@ -157,6 +173,11 @@ def generate(
                 e = min(s + len(kick), total)
                 if e > s:
                     track[s:e] += kick[:e - s]
+            # Snare on beats 2 and 4 of each bar (i % 4 == 2 in eighth-note steps)
+            if use_snare and snare is not None and i % 4 == 2:
+                e = min(s + len(snare), total)
+                if e > s:
+                    track[s:e] += snare[:e - s]
             e = min(s + len(hat), total)
             if e > s:
                 track[s:e] += hat[:e - s] * (0.8 + 0.4 * rng.random())
