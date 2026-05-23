@@ -79,30 +79,30 @@ _HOOKS = [
 ]
 
 _BEATS = [
-    "It started small, but it quietly shapes everything around it.",
-    "The experts who study {topic} agree on one surprising thing.",
-    "Number one: the part everyone ignores is the part that counts.",
-    "Number two: tiny changes here create massive results over time.",
-    "Most people quit right before the breakthrough moment.",
-    "There's a hidden pattern, and once you see it you can't unsee it.",
+    "It started small, but it shapes everything around it.",
+    "Experts on {topic} agree on one surprising thing.",
+    "The part everyone ignores is the part that counts.",
+    "Tiny changes here create massive results over time.",
+    "Most people quit right before the breakthrough.",
+    "Once you see the hidden pattern, you can't unsee it.",
     "The data shows something almost no one expects.",
-    "And the simplest version of this is the most powerful.",
-    "Research confirms what high performers figured out years ago.",
-    "The gap between knowing and doing is where most people get stuck.",
-    "It takes only twenty-one days to rewire this completely.",
+    "The simplest version of this is always the most powerful.",
+    "High performers figured this out years ago.",
+    "The knowing-doing gap is where most people get stuck.",
+    "It takes just twenty-one days to rewire this completely.",
     "The top one percent treat this completely differently.",
-    "Your brain actually changes its structure when you do this consistently.",
-    "This single habit compounds faster than almost anything else.",
-    "What looks like talent from the outside is really just consistent practice.",
+    "Your brain literally rewires when you do this.",
+    "This single habit compounds faster than almost anything.",
+    "What looks like talent is usually just practice.",
     "The science here is clearer than most people realize.",
-    "Even small improvements here stack into life-changing results.",
+    "Small improvements here stack into life-changing results.",
     "The reason most people fail at this is entirely fixable.",
-    "Once you understand the mechanism, the whole picture changes.",
+    "Once you see the mechanism, everything changes.",
     "This is the part the self-help books always leave out.",
-    "The counterintuitive move here is the one that actually works.",
+    "The counterintuitive move here is the one that works.",
     "Consistency beats intensity every single time.",
     "The people who get this right share one common habit.",
-    "It compounds silently until one day the results become impossible to ignore.",
+    "It compounds quietly until the results become undeniable.",
 ]
 
 _CTAS = [
@@ -129,11 +129,116 @@ def _stable_seed(topic: str) -> int:
     return int(hashlib.sha256(topic.encode()).hexdigest()[:16], 16) % (2**31)
 
 
+# Topic-category keywords → extra beats that feel relevant to that domain
+_CATEGORY_BEATS: dict[str, list[str]] = {
+    "health": [
+        "Your body adapts faster than any doctor will admit.",
+        "Inflammation is the hidden driver behind modern disease.",
+        "Sleep is the multiplier that makes every other habit work.",
+        "What happens after seven days straight is remarkable.",
+        "Gut health controls far more than just digestion.",
+        "Most people overlook the single most important biomarker.",
+        "The link between stress and cellular aging is very real.",
+    ],
+    "finance": [
+        "The wealthy automate savings before spending a dollar.",
+        "Compound interest is the only rule that matters long-term.",
+        "Every extra debt payment destroys years of interest.",
+        "The average millionaire holds seven income streams.",
+        "Index funds beat ninety percent of managers long-term.",
+        "Most people lose wealth slowly, then all at once.",
+        "The first dollar invested is always the most valuable.",
+    ],
+    "psychology": [
+        "Your subconscious decides seven seconds before you do.",
+        "Social proof is the most powerful persuasion tool alive.",
+        "Mere exposure explains most of your preferences.",
+        "Cognitive load drains willpower every hour of the day.",
+        "Identity-based habits outlast goal-based ones three-fold.",
+        "Fear of loss is twice as powerful as desire for gain.",
+        "The brain cannot distinguish memory from imagination.",
+    ],
+    "fitness": [
+        "Muscle is built in recovery, not during the workout.",
+        "Progressive overload is the only principle that matters.",
+        "Protein total beats protein timing for most people.",
+        "Zone two cardio burns fat that HIIT cannot touch.",
+        "The minimum effective dose is smaller than you think.",
+        "Rest days are where adaptation actually happens.",
+        "Most injuries come from doing too much too soon.",
+    ],
+    "history": [
+        "This event was deliberately kept from the history books.",
+        "That single decision changed the next five hundred years.",
+        "What really happened was nothing like the official story.",
+        "Historians only recently found the real motivation.",
+        "The eyewitnesses left very different accounts.",
+        "The victors rewrote this part almost completely.",
+        "A single letter changed the course of the entire war.",
+    ],
+    "science": [
+        "The peer-reviewed data tells a completely different story.",
+        "Scientists were wrong about this for fifty years straight.",
+        "The discovery happened entirely by accident.",
+        "Even the researchers were shocked by the results.",
+        "This effect shows up from quantum scale to cosmic scale.",
+        "The real mechanism was hiding in plain sight all along.",
+        "Replication studies reversed what everyone believed.",
+    ],
+    "productivity": [
+        "The two-minute rule kills most procrastination cold.",
+        "Deep work is a trainable skill almost no one practices.",
+        "Time blocking doubles output over reactive scheduling.",
+        "Decision fatigue peaks every single afternoon.",
+        "Top performers work fewer hours but with total focus.",
+        "Single-tasking beats multitasking by thirty percent.",
+        "Your first ninety minutes are your most valuable.",
+    ],
+}
+
+_CATEGORY_KEYWORDS: dict[str, list[str]] = {
+    "health":      ["health", "diet", "sleep", "gut", "food", "nutrition", "disease",
+                    "immune", "cancer", "blood", "body", "brain", "hormone", "vitamin"],
+    "finance":     ["money", "finance", "invest", "wealth", "debt", "stock", "crypto",
+                    "budget", "saving", "income", "rich", "millionaire", "compound"],
+    "psychology":  ["psychology", "mindset", "brain", "habit", "behavior", "anxiety",
+                    "trauma", "emotion", "narcissist", "dopamine", "cognitive", "mental"],
+    "fitness":     ["workout", "exercise", "muscle", "gym", "cardio", "fat", "weight",
+                    "strength", "training", "protein", "lift", "run", "fitness"],
+    "history":     ["history", "ancient", "war", "empire", "civiliz", "century",
+                    "discover", "inventor", "revolution", "cold war", "dynasty"],
+    "science":     ["science", "quantum", "physics", "chemistry", "biology", "evolut",
+                    "atom", "dna", "gene", "climate", "universe", "space", "nasa"],
+    "productivity":["productiv", "focus", "procrastinat", "deep work", "routine",
+                    "morning", "habit", "schedule", "goal", "discipline", "stoic"],
+}
+
+
+def _detect_category(topic: str) -> str | None:
+    t = topic.lower()
+    for cat, keywords in _CATEGORY_KEYWORDS.items():
+        if any(kw in t for kw in keywords):
+            return cat
+    return None
+
+
 def _template_script(topic: str, beats: int = 6) -> list[str]:
     rng = random.Random(_stable_seed(topic))
     t = topic.strip().rstrip(".!?") or "this"
+
     lines = [rng.choice(_HOOKS).format(topic=t)]
-    pool = _BEATS[:]
+
+    # Mix generic beats with category-specific ones for relevance
+    cat = _detect_category(topic)
+    if cat and cat in _CATEGORY_BEATS:
+        cat_pool = _CATEGORY_BEATS[cat][:]
+        rng.shuffle(cat_pool)
+        # Use 2-3 category beats, rest generic
+        n_cat = min(3, len(cat_pool))
+        pool = cat_pool[:n_cat] + _BEATS[:]
+    else:
+        pool = _BEATS[:]
+
     rng.shuffle(pool)
     for b in pool[:max(3, beats)]:
         lines.append(b.format(topic=t))
@@ -237,7 +342,7 @@ def build_script(content: str, mode: str = "topic") -> dict:
 
     # normalize lengths into caption-friendly lines
     flat = " ".join(lines)
-    if max((len(l) for l in lines), default=0) > 58:
+    if max((len(l) for l in lines), default=0) > 64:
         lines = split_into_lines(flat)
 
     return {"title": make_title(content), "lines": lines, "source": source}

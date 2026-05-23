@@ -377,7 +377,8 @@ def _compose(frame, total, t, title, title_font, layouts, theme, bokeh, bg_cache
             _draw_caption(img, lo, t_in, accent)
 
     _draw_chrome(img, title, title_font, frame, total, accent, len(layouts), cur, t)
-    return np.asarray(img.convert("RGB"))
+    # Return raw RGBA bytes — ffmpeg consumes rgba directly, saving a convert+copy
+    return img.tobytes()
 
 
 # ── audio assembly ─────────────────────────────────────────────────────────────
@@ -409,6 +410,26 @@ def _dc_block(audio: np.ndarray, rate: int = 22050) -> np.ndarray:
     return out
 
 
+def _haas_stereo(mono: np.ndarray, delay_samples: int = 180) -> np.ndarray:
+    """Convert mono to stereo using the Haas effect (short inter-channel delay).
+
+    Delay of ~8ms (180 samples at 22050Hz) creates perceived width without
+    comb-filter artifacts. L channel is undelayed; R channel is delayed.
+    """
+    n = len(mono)
+    left  = mono
+    right = np.zeros(n, dtype=np.float32)
+    if delay_samples < n:
+        right[delay_samples:] = mono[:n - delay_samples]
+    else:
+        right[:] = mono
+    # Interleave: [L0 R0 L1 R1 ...]
+    stereo = np.empty(n * 2, dtype=np.float32)
+    stereo[0::2] = left
+    stereo[1::2] = right
+    return stereo
+
+
 def _mix_audio(voice: np.ndarray, duration: float, mood: str,
                music_vol: float, content_seed: int, tmp: Path) -> Path:
     bed = music_engine.generate(duration, mood=mood, seed=content_seed)
@@ -425,9 +446,23 @@ def _mix_audio(voice: np.ndarray, duration: float, mood: str,
     peak = np.max(np.abs(mix)) + 1e-9
     if peak > 0.95:
         mix = np.tanh(mix / peak * 1.2) * 0.95
+    # Convert to stereo for platform compatibility
+    stereo = _haas_stereo(mix)
     out = tmp / "audio.wav"
-    tts_engine.write_wav(mix, out)
+    _write_stereo_wav(stereo, out, rate)
     return out
+
+
+def _write_stereo_wav(stereo: np.ndarray, path: Path, rate: int):
+    """Write interleaved float32 stereo as 16-bit PCM WAV."""
+    import wave
+    pcm = np.clip(stereo, -1.0, 1.0)
+    pcm16 = (pcm * 32767).astype(np.int16)
+    with wave.open(str(path), "wb") as w:
+        w.setnchannels(2)
+        w.setsampwidth(2)
+        w.setframerate(rate)
+        w.writeframes(pcm16.tobytes())
 
 
 # ── public entry point ─────────────────────────────────────────────────────────
@@ -471,13 +506,13 @@ def generate_video(
         cmd = [
             "ffmpeg", "-y",
             "-f", "rawvideo", "-vcodec", "rawvideo",
-            "-s", f"{WIDTH}x{HEIGHT}", "-pix_fmt", "rgb24", "-r", str(FPS),
+            "-s", f"{WIDTH}x{HEIGHT}", "-pix_fmt", "rgba", "-r", str(FPS),
             "-i", "pipe:0",
             "-i", str(audio_path),
             "-c:v", "libx264", "-preset", "fast", "-crf", "22",
             "-maxrate", "6M", "-bufsize", "12M",
             "-pix_fmt", "yuv420p",
-            "-c:a", "aac", "-b:a", "160k",
+            "-c:a", "aac", "-b:a", "192k", "-ar", "44100", "-ac", "2",
             "-shortest", "-movflags", "+faststart",
             str(out_path),
         ]
@@ -489,7 +524,7 @@ def generate_video(
                 t     = f / FPS
                 frame = _compose(f, total, t, title, title_font, layouts,
                                  theme_cfg, bokeh, bg_cache)
-                proc.stdin.write(frame.tobytes())
+                proc.stdin.write(frame)  # frame is already bytes (RGBA)
                 if f % 30 == 0:
                     report(25 + int(70 * f / total), "Rendering frames")
         except BrokenPipeError:
